@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased (v2)
+- Work in progress.
+
 ## v1.0.0
 - Operations dashboard (last 24h table, last hour KPIs)
 - Config-driven overflow location exclusion (EOF/WOF)
