@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manual Receiving ATC - Analytics</title>
+  <style>
+    :root {
+      --wm-blue: #0071ce;
+      --wm-yellow: #ffc220;
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --text: #102a43;
+      --muted: #627d98;
+      --danger: #ffebee;
+      --warn: #fff8e1;
+      --ok: #e8f5e9;
+      --border: #e6e8ee;
+    }
+
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 0; background: var(--bg); color: var(--text); }
+    header { background: var(--wm-blue); color: white; padding: 16px 20px; }
+    header h1 { margin: 0; font-size: 18px; }
+    header .sub { margin-top: 4px; color: #e6f0ff; font-size: 12px; }
+
+    main { padding: 16px 20px; max-width: 1200px; margin: 0 auto; }
+    .card { background: var(--card); border-radius: 10px; padding: 12px; box-shadow: 0 1px 2px rgba(16,42,67,.08); border: 1px solid var(--border); }
+    .label { color: var(--muted); font-size: 12px; }
+
+    .status { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+    .pill { padding: 6px 10px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); background: #fff; }
+    .pill.ok { background: var(--ok); }
+    .pill.warn { background: var(--warn); }
+    .pill.bad { background: var(--danger); }
+
+    .actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+    button, a.btn { background: var(--wm-blue); border: none; color: white; padding: 10px 12px; border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-block; }
+    button.secondary { background: #334e68; }
+    button:focus, a.btn:focus { outline: 3px solid var(--wm-yellow); outline-offset: 2px; }
+
+    table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(16,42,67,.08); border: 1px solid var(--border); }
+    th, td { padding: 10px; border-bottom: 1px solid var(--border); font-size: 12px; text-align: left; }
+    th { background: #f0f4f8; }
+
+    @media (max-width: 900px) { }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 id="title">Manual Receiving ATC - Analytics</h1>
+    <div class="sub">On-demand analytics (does not auto-run BigQuery queries)</div>
+  </header>
+
+  <main>
+    <div class="card status" aria-live="polite">
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <span class="pill" id="pillState">Starting…</span>
+        <span class="pill" id="pillLastQuery">Last query: –</span>
+        <span class="pill" id="pillLastError" style="display:none;">Last error: –</span>
+      </div>
+      <div class="pill" id="pillFacility">Facility: –</div>
+    </div>
+
+    <div class="actions">
+      <a class="btn" href="/">← Back to Operations</a>
+      <button class="secondary" id="refreshAnalyticsBtn" type="button">Refresh Analytics (runs BigQuery)</button>
+    </div>
+
+    <div class="card" aria-label="Top items last 30 days">
+      <div style="display:flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+        <div>
+          <div style="font-weight:700;">Top Manually Received Items (last 30 days)</div>
+          <div class="label">Ranked by total cases (manual receiving only)</div>
+        </div>
+        <div class="label" id="topItemsMeta">Not loaded</div>
+      </div>
+
+      <div style="overflow-x:auto; margin-top:10px;">
+        <table aria-label="Top items 30 days table">
+          <thead>
+            <tr>
+              <th style="width:70px;">Rank</th>
+              <th>Item #</th>
+              <th>Top Vendor</th>
+              <th style="width:180px;">Total Cases</th>
+            </tr>
+          </thead>
+          <tbody id="topItemsBody">
+            <tr><td colspan="4" class="label">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+<script>
+  function setPill(el, text, klass) {
+    el.className = 'pill' + (klass ? ' ' + klass : '');
+    el.textContent = text;
+  }
+
+  async function loadStatus() {
+    const res = await fetch('/api/status', { cache: 'no-store' });
+    const s = await res.json();
+
+    document.getElementById('title').textContent = `Manual Receiving ATC - Analytics - ${s.facility_id || '–'}`;
+    document.getElementById('pillFacility').textContent = `Facility: ${s.facility_id || '–'}`;
+
+    const pillState = document.getElementById('pillState');
+    if (s.state === 'running') setPill(pillState, 'Running', 'ok');
+    else if (s.state === 'error') setPill(pillState, 'Error', 'bad');
+    else setPill(pillState, s.state || 'Starting…', 'warn');
+
+    const lastQuery = s.last_query_end || s.last_query_start || null;
+    document.getElementById('pillLastQuery').textContent = lastQuery ? `Last query: ${lastQuery}` : 'Last query: –';
+
+    const errPill = document.getElementById('pillLastError');
+    if (s.last_error) {
+      errPill.style.display = 'inline-block';
+      errPill.textContent = `Last error: ${s.last_error}`;
+      errPill.className = 'pill bad';
+    } else {
+      errPill.style.display = 'none';
+    }
+  }
+
+  function fmtNum(n) {
+    if (n === null || n === undefined) return '–';
+    const x = Number(n);
+    return Number.isFinite(x) ? x.toLocaleString() : String(n);
+  }
+
+  async function loadTopItems(refresh=false) {
+    const meta = document.getElementById('topItemsMeta');
+    const body = document.getElementById('topItemsBody');
+
+    try {
+      meta.textContent = refresh ? 'Refreshing…' : 'Loading…';
+
+      const url = refresh ? '/api/top-items?refresh=1' : '/api/top-items';
+      const res = await fetch(url, { cache: 'no-store' });
+      const data = await res.json();
+
+      if (!data.ok) {
+        meta.textContent = data.error ? `Error: ${data.error}` : 'Error loading top items';
+        body.innerHTML = '<tr><td colspan="4" class="label">Failed to load.</td></tr>';
+        return;
+      }
+
+      if (data.message) {
+        meta.textContent = data.message;
+      } else if (data.refreshed_at_epoch) {
+        const dt = new Date(data.refreshed_at_epoch * 1000);
+        meta.textContent = `Refreshed: ${dt.toLocaleString()}${data.cached ? ' (cached)' : ''}`;
+      } else {
+        meta.textContent = data.cached ? 'Loaded (cached)' : 'Loaded';
+      }
+
+      const rows = data.rows || [];
+      if (rows.length === 0) {
+        body.innerHTML = '<tr><td colspan="4" class="label">No rows returned.</td></tr>';
+        return;
+      }
+
+      body.innerHTML = '';
+      rows.forEach((r, idx) => {
+        const tr = document.createElement('tr');
+        const cells = [
+          `#${idx + 1}`,
+          String(r.item_nbr ?? ''),
+          String(r.vendor_name ?? '–') || '–',
+          fmtNum(r.total_cases),
+        ];
+        for (const c of cells) {
+          const td = document.createElement('td');
+          td.textContent = c;
+          tr.appendChild(td);
+        }
+        body.appendChild(tr);
+      });
+
+    } catch (e) {
+      meta.textContent = `Error: ${e}`;
+      body.innerHTML = '<tr><td colspan="4" class="label">Failed to load.</td></tr>';
+    }
+  }
+
+  async function refreshAnalytics() {
+    const btn = document.getElementById('refreshAnalyticsBtn');
+    try {
+      btn.disabled = true;
+      await loadTopItems(true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  loadStatus();
+  setInterval(loadStatus, 10_000);
+
+  // Load cached results on page open
+  loadTopItems(false);
+  document.getElementById('refreshAnalyticsBtn').addEventListener('click', refreshAnalytics);
+</script>
+</body>
+</html>

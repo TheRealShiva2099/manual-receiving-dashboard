@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manual Receiving ATC</title>
+  <style>
+    :root {
+      --wm-blue: #0071ce;
+      --wm-yellow: #ffc220;
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --text: #102a43;
+      --muted: #627d98;
+      --danger: #ffebee;
+      --warn: #fff8e1;
+      --ok: #e8f5e9;
+      --border: #e6e8ee;
+    }
+
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 0; background: var(--bg); color: var(--text); }
+    header { background: var(--wm-blue); color: white; padding: 16px 20px; }
+    header h1 { margin: 0; font-size: 18px; }
+    header .sub { margin-top: 4px; color: #e6f0ff; font-size: 12px; }
+
+    main { padding: 16px 20px; max-width: 1200px; margin: 0 auto; }
+    .row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+    .card { background: var(--card); border-radius: 10px; padding: 12px; box-shadow: 0 1px 2px rgba(16,42,67,.08); border: 1px solid var(--border); }
+    .kpi { font-size: 26px; font-weight: 700; }
+    .label { color: var(--muted); font-size: 12px; }
+
+    .status { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+    .pill { padding: 6px 10px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); background: #fff; }
+    .pill.ok { background: var(--ok); }
+    .pill.warn { background: var(--warn); }
+    .pill.bad { background: var(--danger); }
+
+    .actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+    button, a.btn { background: var(--wm-blue); border: none; color: white; padding: 10px 12px; border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-block; }
+    button.secondary { background: #334e68; }
+    button:focus, a.btn:focus { outline: 3px solid var(--wm-yellow); outline-offset: 2px; }
+
+    table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(16,42,67,.08); border: 1px solid var(--border); }
+    th, td { padding: 10px; border-bottom: 1px solid var(--border); font-size: 12px; text-align: left; }
+    th { background: #f0f4f8; }
+    tr.recent { background: var(--danger); }
+    tr.medium { background: var(--warn); }
+
+    .foot { margin-top: 10px; color: var(--muted); font-size: 12px; }
+
+    @media (max-width: 900px) { .row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 id="title">Manual Receiving ATC</h1>
+    <div class="sub">Last 24 hours • Auto-refreshes</div>
+  </header>
+
+  <main>
+    <div class="card status" aria-live="polite">
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <span class="pill" id="pillState">Starting…</span>
+        <span class="pill" id="pillLastQuery">Last query: –</span>
+        <span class="pill" id="pillLastError" style="display:none;">Last error: –</span>
+      </div>
+      <div class="pill" id="pillFacility">Facility: –</div>
+    </div>
+
+    <div class="row" style="margin-top:12px;">
+      <div class="card"><div class="kpi" id="kpiEvents">–</div><div class="label">Events (last hour)</div></div>
+      <div class="card"><div class="kpi" id="kpiLocations">–</div><div class="label">Locations affected (last hour)</div></div>
+      <div class="card"><div class="kpi" id="kpiTopVendor">–</div><div class="label">Top vendor (last hour)</div></div>
+    </div>
+
+    <div class="card" aria-label="Top 3 items last hour" style="margin: 12px 0;">
+      <div style="display:flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+        <div>
+          <div style="font-weight:700;">Top 3 Items (last hour)</div>
+          <div class="label">Ranked by manual receiving count</div>
+        </div>
+        <div class="label" id="top3Meta">–</div>
+      </div>
+
+      <div style="overflow-x:auto; margin-top:10px;">
+        <table aria-label="Top 3 Items Table">
+          <thead>
+            <tr>
+              <th style="width:70px;">Rank</th>
+              <th>Item #</th>
+              <th style="width:90px;">Count</th>
+              <th>Top Vendor</th>
+              <th>Top Location</th>
+            </tr>
+          </thead>
+          <tbody id="top3Body">
+            <tr><td colspan="5" class="label">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="actions">
+      <a class="btn" href="/analytics">Analytics (QE)</a>
+      <button class="secondary" onclick="location.reload()">Refresh</button>
+      <button onclick="exportCsv()">Export CSV</button>
+      <a class="btn" id="tableauBtn" href="#" target="_blank" rel="noopener noreferrer" style="display:none;">More Data (Tableau)</a>
+    </div>
+
+    <table aria-label="Manual Receiving Events">
+      <thead>
+        <tr>
+          <th>Rec Date</th>
+          <th>Location</th>
+          <th>Container</th>
+          <th>Item</th>
+          <th>Vendor</th>
+          <th>Delivery</th>
+          <th>Shift</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+
+    <div class="foot" id="lastUpdated">Last updated: –</div>
+  </main>
+
+<script>
+  const REFRESH_SECONDS = 10;
+
+  function minutesBetween(now, dtStr) {
+    const iso = dtStr.replace(' ', 'T');
+    const dt = new Date(iso);
+    if (Number.isNaN(dt.getTime())) return null;
+    return Math.floor((now - dt) / 60000);
+  }
+
+  function rowClass(ageMin) {
+    if (ageMin === null) return '';
+    if (ageMin <= 15) return 'recent';
+    if (ageMin <= 30) return 'medium';
+    return '';
+  }
+
+  function setPill(el, text, klass) {
+    el.className = 'pill' + (klass ? ' ' + klass : '');
+    el.textContent = text;
+  }
+
+  async function loadStatus() {
+    const res = await fetch('/api/status', { cache: 'no-store' });
+    const s = await res.json();
+
+    document.getElementById('title').textContent = `Manual Receiving ATC - ${s.facility_id || '–'}`;
+    document.getElementById('pillFacility').textContent = `Facility: ${s.facility_id || '–'}`;
+
+    const pillState = document.getElementById('pillState');
+    if (s.state === 'running') setPill(pillState, 'Running', 'ok');
+    else if (s.state === 'error') setPill(pillState, 'Error', 'bad');
+    else setPill(pillState, s.state || 'Starting…', 'warn');
+
+    const lastQuery = s.last_query_end || s.last_query_start || null;
+    document.getElementById('pillLastQuery').textContent = lastQuery ? `Last query: ${lastQuery}` : 'Last query: –';
+
+    const errPill = document.getElementById('pillLastError');
+    if (s.last_error) {
+      errPill.style.display = 'inline-block';
+      errPill.textContent = `Last error: ${s.last_error}`;
+      errPill.className = 'pill bad';
+    } else {
+      errPill.style.display = 'none';
+    }
+
+    const tb = document.getElementById('tableauBtn');
+    if (s.tableau_url) {
+      tb.style.display = 'inline-block';
+      tb.href = s.tableau_url;
+    } else {
+      tb.style.display = 'none';
+    }
+  }
+
+  async function loadEvents() {
+    const res = await fetch('/api/events', { cache: 'no-store' });
+    const data = await res.json();
+    const events = data.events || [];
+
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60*60000);
+
+    const lastHour = events.filter(e => {
+      const dt = new Date(String(e.rec_dt || '').replace(' ', 'T'));
+      return !Number.isNaN(dt.getTime()) && dt >= oneHourAgo;
+    });
+
+    const locations = new Set(lastHour.map(e => String(e.location_id || '')));
+
+    const vendorCounts = new Map();
+    for (const e of lastHour) {
+      const v = String(e.vendor_name || '').trim();
+      if (!v) continue;
+      vendorCounts.set(v, (vendorCounts.get(v) || 0) + 1);
+    }
+    let topVendor = '';
+    let topVendorCount = 0;
+    for (const [v, c] of vendorCounts.entries()) {
+      if (c > topVendorCount) { topVendor = v; topVendorCount = c; }
+    }
+
+    document.getElementById('kpiEvents').textContent = lastHour.length;
+    document.getElementById('kpiLocations').textContent = Array.from(locations).filter(Boolean).length;
+    document.getElementById('kpiTopVendor').textContent = topVendor || '–';
+
+    // Top 3 items (last hour)
+    // We compute counts client-side so backend stays simple.
+    const byItem = new Map();
+    for (const e of lastHour) {
+      const item = String(e.item_nbr || '').trim();
+      if (!item) continue;
+
+      if (!byItem.has(item)) {
+        byItem.set(item, {
+          count: 0,
+          vendorCounts: new Map(),
+          locationCounts: new Map(),
+        });
+      }
+      const bucket = byItem.get(item);
+      bucket.count += 1;
+
+      const v = String(e.vendor_name || '').trim();
+      if (v) bucket.vendorCounts.set(v, (bucket.vendorCounts.get(v) || 0) + 1);
+
+      const loc = String(e.location_id || '').trim();
+      if (loc) bucket.locationCounts.set(loc, (bucket.locationCounts.get(loc) || 0) + 1);
+    }
+
+    function topKey(map) {
+      let bestK = '';
+      let bestC = 0;
+      for (const [k, c] of map.entries()) {
+        if (c > bestC) { bestK = k; bestC = c; }
+      }
+      return bestK || '–';
+    }
+
+    const ranked = Array.from(byItem.entries())
+      .map(([item, v]) => ({
+        item,
+        count: v.count,
+        topVendor: topKey(v.vendorCounts),
+        topLocation: topKey(v.locationCounts),
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 3);
+
+    const top3Body = document.getElementById('top3Body');
+    const top3Meta = document.getElementById('top3Meta');
+
+    if (lastHour.length === 0) {
+      top3Meta.textContent = 'No events in last hour';
+      top3Body.innerHTML = '<tr><td colspan="5" class="label">No items to rank (last hour has 0 events).</td></tr>';
+    } else if (ranked.length === 0) {
+      top3Meta.textContent = 'No item numbers available';
+      top3Body.innerHTML = '<tr><td colspan="5" class="label">Events exist, but item_nbr was blank.</td></tr>';
+    } else {
+      top3Meta.textContent = `Based on ${lastHour.length} event(s)`;
+      top3Body.innerHTML = '';
+      ranked.forEach((r, idx) => {
+        const tr = document.createElement('tr');
+        const cells = [
+          `#${idx + 1}`,
+          r.item,
+          String(r.count),
+          r.topVendor,
+          r.topLocation,
+        ];
+        for (const c of cells) {
+          const td = document.createElement('td');
+          td.textContent = c;
+          tr.appendChild(td);
+        }
+        top3Body.appendChild(tr);
+      });
+    }
+
+    const tbody = document.getElementById('tbody');
+    tbody.innerHTML = '';
+
+    for (const e of events) {
+      const age = minutesBetween(now, String(e.rec_dt || ''));
+      const tr = document.createElement('tr');
+      tr.className = rowClass(age);
+
+      const cols = ['rec_dt','location_id','container_id','item_nbr','vendor_name','delivery_number','shift_label'];
+      for (const c of cols) {
+        const td = document.createElement('td');
+        td.textContent = String(e[c] ?? '');
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    }
+
+    document.getElementById('lastUpdated').textContent = 'Last updated: ' + new Date().toLocaleString();
+  }
+
+  function exportCsv() {
+    const rows = [];
+    rows.push(['Rec Date','Location','Container','Item','Vendor','Delivery','Shift']);
+
+    const tbody = document.getElementById('tbody');
+    for (const tr of tbody.querySelectorAll('tr')) {
+      const row = [];
+      for (const td of tr.querySelectorAll('td')) row.push(td.textContent);
+      rows.push(row);
+    }
+
+    const csv = rows.map(r => r.map(v => '"' + String(v).replaceAll('"','""') + '"').join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    const today = new Date().toISOString().slice(0, 10);
+    a.href = URL.createObjectURL(blob);
+    a.download = 'ATC_Events_' + today + '.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+
+  async function tick() {
+    try {
+      await Promise.all([loadStatus(), loadEvents()]);
+    } catch (e) {
+      console.log(e);
+    }
+  }
+
+  // Main live dashboard loop
+  tick();
+  setInterval(tick, REFRESH_SECONDS * 1000);
+
+  // Analytics moved to /analytics
+</script>
+</body>
+</html>

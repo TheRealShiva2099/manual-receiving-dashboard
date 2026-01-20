@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+*.egg-info/
+.dist/
+build/
+
+# Virtual envs
+.venv/
+venv/
+atc_env/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs / local runtime artifacts
+install.log
+last_atc_query.sql
+
+# Local ATC runtime state (generated)
+atc_events_log.json
+atc_state.json
+atc_status.json
+*_cache.json
+
+# Generated HTML outputs (templates are committed)
+atc_dashboard.html
+atc_analytics.html

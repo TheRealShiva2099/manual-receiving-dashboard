@@ -1,0 +1,44 @@
+{
+  "bigquery": {
+    "project": "wmt-edw-prod",
+    "dataset": "US_SUPPLY_CHAIN_SCT_NONCAT_VM",
+    "table": "RECEIVING_ITEM",
+    "billing_project": "wmt-edw-sandbox",
+    "job_project": "wmt-wmsc-dceng",
+    "bq_path": "C:\\Users\\s0i028t\\AppData\\Local\\Google\\Cloud SDK\\google-cloud-sdk\\bin\\bq.cmd",
+    "include_vendor_name": true
+  },
+  "monitoring": {
+    "polling_interval_minutes": 15,
+    "lookback_minutes": 15,
+    "query_window_minutes": 60,
+    "bq_timeout_seconds": 900,
+    "facility_id": "US-07377",
+    "timezone": "America/New_York",
+    "overflow_locations": ["EOF", "WOF"]
+  },
+  "safety": {
+    "kill_switch_file": "STOP_ATC.txt",
+    "max_queries_per_hour": 5,
+    "max_consecutive_failures": 3,
+    "backoff_on_error_seconds": 600
+  },
+  "dashboard": {
+    "refresh_seconds": 10,
+    "tableau_url": ""
+  },
+  "analytics": {
+    "top_items": {
+      "days": 30,
+      "limit": 25,
+      "min_refresh_seconds": 300,
+      "cache_file": "top_items_cache.json"
+    }
+  },
+  "notifications": {
+    "enabled": false,
+    "duration_seconds": 600,
+    "sound_enabled": true,
+    "app_name": "Manual Receiving ATC"
+  }
+}
