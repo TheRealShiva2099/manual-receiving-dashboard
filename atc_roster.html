@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manual Receiving ATC - Roster</title>
+  <style>
+    :root {
+      --wm-blue: #0071ce;
+      --wm-yellow: #ffc220;
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --text: #102a43;
+      --muted: #627d98;
+      --border: #e6e8ee;
+      --danger: #b00020;
+    }
+
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 0; background: var(--bg); color: var(--text); }
+    header { background: var(--wm-blue); color: white; padding: 16px 20px; }
+    header h1 { margin: 0; font-size: 18px; }
+    header .sub { margin-top: 4px; color: #e6f0ff; font-size: 12px; }
+
+    main { padding: 16px 20px; max-width: 1200px; margin: 0 auto; }
+    .card { background: var(--card); border-radius: 10px; padding: 12px; box-shadow: 0 1px 2px rgba(16,42,67,.08); border: 1px solid var(--border); }
+    .label { color: var(--muted); font-size: 12px; }
+
+    .actions { display: flex; gap: 8px; justify-content: space-between; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+    button, a.btn { background: var(--wm-blue); border: none; color: white; padding: 10px 12px; border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-block; }
+    button.secondary { background: #334e68; }
+    button:focus, a.btn:focus, input:focus { outline: 3px solid var(--wm-yellow); outline-offset: 2px; }
+
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+    .roleTitle { font-weight: 800; margin-bottom: 6px; }
+    .shiftGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    @media (max-width: 900px) { .shiftGrid { grid-template-columns: 1fr; } }
+
+    .bucket { border: 1px dashed var(--border); border-radius: 10px; padding: 10px; min-height: 120px; background: #fbfcff; }
+    .bucketHeader { display:flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+    .bucketHeader .name { font-weight: 700; }
+
+    .pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 999px; background: white; margin: 6px 6px 0 0; cursor: grab; }
+    .pill:active { cursor: grabbing; }
+    .pill .x { border: none; background: transparent; color: var(--danger); font-weight: 900; cursor: pointer; }
+
+    .dropHint { margin-top: 8px; color: var(--muted); font-size: 12px; }
+
+    input { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); min-width: 260px; }
+    .error { color: var(--danger); font-weight: 700; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Manual Receiving ATC - Manager Roster</h1>
+    <div class="sub">Drag and drop managers into their current role + shift. Used for shift-based email routing.</div>
+  </header>
+
+  <main>
+    <nav class="card" aria-label="Navigation" style="display:flex; gap:8px; flex-wrap: wrap; align-items:center; justify-content: space-between;">
+      <div style="display:flex; gap:8px; flex-wrap: wrap;">
+        <a class="btn" href="/">Operations</a>
+        <a class="btn" href="/viz">Visualizations</a>
+        <a class="btn" href="/analytics">Analytics (QE)</a>
+        <a class="btn" href="/roster" aria-current="page">Roster</a>
+      </div>
+      <div class="label">Switch pages</div>
+    </nav>
+
+    <div class="actions">
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap: wrap;">
+        <span class="label" id="meta">Loading…</span>
+        <button class="secondary" id="btnSave" type="button">Save</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 12px;">
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap: wrap;">
+        <input id="newEmail" placeholder="Add manager email (ex: name@walmart.com)" />
+        <button id="btnAdd" type="button">Add</button>
+        <span class="label">Tip: drag the pills into the right bucket.</span>
+      </div>
+      <div class="error" id="err" style="display:none;"></div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="roleTitle">Inbound (receives MR emails)</div>
+        <div class="shiftGrid" id="inboundGrid"></div>
+      </div>
+    </div>
+  </main>
+
+<script>
+  const SHIFTS = ['Shift A1','Shift A2','Shift B1','Off Shift'];
+  let roster = null;
+
+  function showError(msg) {
+    const el = document.getElementById('err');
+    el.style.display = 'block';
+    el.textContent = msg;
+  }
+
+  function clearError() {
+    const el = document.getElementById('err');
+    el.style.display = 'none';
+    el.textContent = '';
+  }
+
+  function normalizeEmail(x) {
+    return String(x || '').trim().toLowerCase();
+  }
+
+  function uniq(arr) {
+    return Array.from(new Set(arr));
+  }
+
+  function removeFromAll(email) {
+    // Inbound only (outbound does not receive MR notifications)
+    for (const sh of SHIFTS) {
+      const a = roster.roles.inbound?.[sh] || [];
+      roster.roles.inbound[sh] = a.filter(e => normalizeEmail(e) !== email);
+    }
+  }
+
+  function makeBucket(role, shift) {
+    const bucket = document.createElement('div');
+    bucket.className = 'bucket';
+    bucket.dataset.role = role;
+    bucket.dataset.shift = shift;
+    bucket.addEventListener('dragover', (ev) => ev.preventDefault());
+    bucket.addEventListener('drop', (ev) => {
+      ev.preventDefault();
+      const email = normalizeEmail(ev.dataTransfer.getData('text/plain'));
+      if (!email) return;
+      removeFromAll(email);
+      roster.roles[role][shift] = uniq([...(roster.roles[role][shift] || []), email]);
+      render();
+    });
+
+    const head = document.createElement('div');
+    head.className = 'bucketHeader';
+    head.innerHTML = `<div class="name">${shift}</div><div class="label">Drop here</div>`;
+    bucket.appendChild(head);
+
+    const list = document.createElement('div');
+    list.className = 'list';
+    list.id = `${role}_${shift}`;
+    bucket.appendChild(list);
+
+    const hint = document.createElement('div');
+    hint.className = 'dropHint';
+    hint.textContent = 'Managers in this bucket will receive MR delivery emails for this role/shift.';
+    bucket.appendChild(hint);
+
+    return bucket;
+  }
+
+  function makePill(email) {
+    const pill = document.createElement('div');
+    pill.className = 'pill';
+    pill.draggable = true;
+    pill.addEventListener('dragstart', (ev) => {
+      ev.dataTransfer.setData('text/plain', email);
+    });
+
+    const span = document.createElement('span');
+    span.textContent = email;
+    const x = document.createElement('button');
+    x.className = 'x';
+    x.type = 'button';
+    x.textContent = '×';
+    x.title = 'Remove';
+    x.addEventListener('click', () => {
+      removeFromAll(email);
+      render();
+    });
+
+    pill.appendChild(span);
+    pill.appendChild(x);
+    return pill;
+  }
+
+  function render() {
+    clearError();
+    const inGrid = document.getElementById('inboundGrid');
+    inGrid.innerHTML = '';
+
+    for (const sh of SHIFTS) inGrid.appendChild(makeBucket('inbound', sh));
+
+    // Add pills (inbound only)
+    for (const sh of SHIFTS) {
+      const list = document.getElementById(`inbound_${sh}`);
+      const emails = (roster.roles.inbound?.[sh] || []).map(normalizeEmail).filter(Boolean).sort();
+      if (!emails.length) {
+        const empty = document.createElement('div');
+        empty.className = 'label';
+        empty.textContent = '—';
+        list.appendChild(empty);
+        continue;
+      }
+      for (const e of emails) list.appendChild(makePill(e));
+    }
+
+    document.getElementById('meta').textContent = roster.updated_at ? `Updated: ${roster.updated_at}` : 'Not saved yet';
+  }
+
+  async function loadRoster() {
+    const res = await fetch('/api/roster', { cache: 'no-store' });
+    roster = await res.json();
+    render();
+  }
+
+  async function saveRoster() {
+    clearError();
+    const res = await fetch('/api/roster', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(roster),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      showError(data.error || 'Failed to save roster');
+      return;
+    }
+    roster = data.roster;
+    render();
+  }
+
+  function addEmail() {
+    clearError();
+    const raw = document.getElementById('newEmail').value;
+    const email = normalizeEmail(raw);
+    if (!email || !email.includes('@')) {
+      showError('Please enter a valid email.');
+      return;
+    }
+    // Default: inbound Shift A1
+    removeFromAll(email);
+    roster.roles.inbound['Shift A1'] = uniq([...(roster.roles.inbound['Shift A1'] || []), email]);
+    document.getElementById('newEmail').value = '';
+    render();
+  }
+
+  document.getElementById('btnAdd').addEventListener('click', addEmail);
+  document.getElementById('btnSave').addEventListener('click', saveRoster);
+  document.getElementById('newEmail').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addEmail();
+  });
+
+  loadRoster();
+</script>
+</body>
+</html>

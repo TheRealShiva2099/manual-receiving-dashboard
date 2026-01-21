@@ -1,7 +1,12 @@
 # Changelog
 
-## Unreleased (v2)
-- Work in progress.
+## v2.0.0
+- Visualizations page (/viz) with ops-focused charts and time-range toggles
+- Roster page (/roster) with drag/drop inbound shift assignments
+- Email template builder + outbox preview for delivery-based MR notifications (Graph pending admin consent)
+- Top-items analytics query improvements and config tuning
+- Local event log retention extended to 7 days
+- Navigation tabs moved to top across pages
 
 ## v1.0.0
 - Operations dashboard (last 24h table, last hour KPIs)

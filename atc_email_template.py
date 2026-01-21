@@ -1,0 +1,138 @@
+"""Email template builder for Manual Receiving ATC.
+
+Pure functions:
+- input: delivery summary data
+- output: subject + HTML
+
+No network side effects. No Graph. Just content.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from html import escape
+from typing import Iterable
+
+
+@dataclass(frozen=True)
+class DeliveryItemLine:
+    item_nbr: str
+    vendor_name: str
+    cases: float
+    locations: list[str]
+
+
+@dataclass(frozen=True)
+class DeliveryEmailSummary:
+    facility_id: str
+    shift_label: str
+    delivery_number: str
+    first_detected_local: str
+    locations: list[str]
+    total_cases: float
+    items: list[DeliveryItemLine]
+
+
+def build_subject(s: DeliveryEmailSummary) -> str:
+    # Keep it short for Outlook/mobile.
+    return f"MR Required: Delivery {s.delivery_number} ({s.facility_id}) - {len(s.items)} item(s), {round(s.total_cases, 1)} cases"
+
+
+def _fmt_list(xs: Iterable[str]) -> str:
+    xs = [x for x in (str(x).strip() for x in xs) if x]
+    return ", ".join(xs) if xs else "–"
+
+
+def _fmt_num(x: float) -> str:
+    try:
+        return f"{x:,.1f}".rstrip("0").rstrip(".")
+    except Exception:
+        return str(x)
+
+
+def build_html(s: DeliveryEmailSummary) -> str:
+    # Inline styles for Outlook.
+    # WCAG-ish: high contrast, readable font sizes.
+
+    title = f"Manual Receiving Required - Delivery {escape(s.delivery_number)}"
+
+    rows = []
+    for line in s.items:
+        rows.append(
+            """
+<tr>
+  <td style="padding:8px;border-bottom:1px solid #e6e8ee;">{item}</td>
+  <td style="padding:8px;border-bottom:1px solid #e6e8ee;">{vendor}</td>
+  <td style="padding:8px;border-bottom:1px solid #e6e8ee;text-align:right;">{cases}</td>
+  <td style="padding:8px;border-bottom:1px solid #e6e8ee;">{locs}</td>
+</tr>
+""".format(
+                item=escape(str(line.item_nbr)),
+                vendor=escape(str(line.vendor_name or "")) or "–",
+                cases=escape(_fmt_num(float(line.cases))),
+                locs=escape(_fmt_list(line.locations)),
+            ).strip()
+        )
+
+    items_table = (
+        """
+<table role="table" aria-label="Items" style="width:100%;border-collapse:collapse;border:1px solid #e6e8ee;border-radius:10px;overflow:hidden;">
+  <thead>
+    <tr style="background:#f0f4f8;">
+      <th scope="col" style="text-align:left;padding:10px;border-bottom:1px solid #e6e8ee;">Item #</th>
+      <th scope="col" style="text-align:left;padding:10px;border-bottom:1px solid #e6e8ee;">Vendor</th>
+      <th scope="col" style="text-align:right;padding:10px;border-bottom:1px solid #e6e8ee;">Cases</th>
+      <th scope="col" style="text-align:left;padding:10px;border-bottom:1px solid #e6e8ee;">Location(s)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {rows}
+  </tbody>
+</table>
+""".format(rows="\n".join(rows) or "")
+        .strip()
+    )
+
+    html = f"""
+<div style="font-family:Segoe UI, Arial, sans-serif;color:#102a43;">
+  <div style="background:#0071ce;color:white;padding:14px 16px;border-radius:10px 10px 0 0;">
+    <div style="font-size:16px;font-weight:800;">{title}</div>
+    <div style="margin-top:4px;font-size:12px;color:#e6f0ff;">Operations notification • Inbound shift-based routing</div>
+  </div>
+
+  <div style="border:1px solid #e6e8ee;border-top:0;border-radius:0 0 10px 10px;padding:14px 16px;background:white;">
+
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+      <div style="padding:10px;border:1px solid #e6e8ee;border-radius:10px;min-width:220px;">
+        <div style="font-size:12px;color:#627d98;">Facility</div>
+        <div style="font-size:14px;font-weight:700;">{escape(s.facility_id)}</div>
+      </div>
+      <div style="padding:10px;border:1px solid #e6e8ee;border-radius:10px;min-width:220px;">
+        <div style="font-size:12px;color:#627d98;">Shift</div>
+        <div style="font-size:14px;font-weight:700;">{escape(s.shift_label)}</div>
+      </div>
+      <div style="padding:10px;border:1px solid #e6e8ee;border-radius:10px;min-width:220px;">
+        <div style="font-size:12px;color:#627d98;">First detected</div>
+        <div style="font-size:14px;font-weight:700;">{escape(s.first_detected_local)}</div>
+      </div>
+      <div style="padding:10px;border:1px solid #e6e8ee;border-radius:10px;min-width:220px;">
+        <div style="font-size:12px;color:#627d98;">Locations involved</div>
+        <div style="font-size:14px;font-weight:700;">{escape(_fmt_list(s.locations))}</div>
+      </div>
+      <div style="padding:10px;border:1px solid #e6e8ee;border-radius:10px;min-width:220px;">
+        <div style="font-size:12px;color:#627d98;">Total cases</div>
+        <div style="font-size:14px;font-weight:700;">{escape(_fmt_num(float(s.total_cases)))}</div>
+      </div>
+    </div>
+
+    <div style="font-size:14px;font-weight:800;margin:8px 0;">Items requiring manual receiving</div>
+    {items_table}
+
+    <div style="margin-top:12px;font-size:12px;color:#627d98;">
+      This email is generated by Manual Receiving ATC. It is designed to send once per delivery.
+    </div>
+  </div>
+</div>
+""".strip()
+
+    return html

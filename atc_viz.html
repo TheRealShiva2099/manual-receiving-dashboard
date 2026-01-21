@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manual Receiving ATC - Visualizations</title>
+  <style>
+    :root {
+      --wm-blue: #0071ce;
+      --wm-yellow: #ffc220;
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --text: #102a43;
+      --muted: #627d98;
+      --danger: #ffebee;
+      --warn: #fff8e1;
+      --ok: #e8f5e9;
+      --border: #e6e8ee;
+    }
+
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 0; background: var(--bg); color: var(--text); }
+    header { background: var(--wm-blue); color: white; padding: 16px 20px; }
+    header h1 { margin: 0; font-size: 18px; }
+    header .sub { margin-top: 4px; color: #e6f0ff; font-size: 12px; }
+
+    main { padding: 16px 20px; max-width: 1200px; margin: 0 auto; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .card { background: var(--card); border-radius: 10px; padding: 12px; box-shadow: 0 1px 2px rgba(16,42,67,.08); border: 1px solid var(--border); }
+    .label { color: var(--muted); font-size: 12px; }
+
+    .status { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+    .pill { padding: 6px 10px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); background: #fff; }
+    .pill.ok { background: var(--ok); }
+    .pill.warn { background: var(--warn); }
+    .pill.bad { background: var(--danger); }
+
+    .actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+    button, a.btn { background: var(--wm-blue); border: none; color: white; padding: 10px 12px; border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-block; }
+    button.secondary { background: #334e68; }
+    button:focus, a.btn:focus { outline: 3px solid var(--wm-yellow); outline-offset: 2px; }
+
+    .chartWrap { position: relative; height: 280px; width: 100%; }
+    canvas { width: 100% !important; height: 100% !important; }
+
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+      .chartWrap { height: 240px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 id="title">Manual Receiving ATC - Visualizations</h1>
+    <div class="sub">Operations-first • Last 7 days • Auto-refreshes (no extra BigQuery load)</div>
+  </header>
+
+  <main>
+    <nav class="card" aria-label="Navigation" style="display:flex; gap:8px; flex-wrap: wrap; align-items:center; justify-content: space-between;">
+      <div style="display:flex; gap:8px; flex-wrap: wrap;">
+        <a class="btn" href="/">Operations</a>
+        <a class="btn" href="/viz" aria-current="page">Visualizations</a>
+        <a class="btn" href="/analytics">Analytics (QE)</a>
+        <a class="btn" href="/roster">Roster</a>
+      </div>
+      <div class="label">Switch pages</div>
+    </nav>
+
+    <div class="card status" aria-live="polite">
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <span class="pill" id="pillState">Starting…</span>
+        <span class="pill" id="pillLastQuery">Last query: –</span>
+        <span class="pill" id="pillLastError" style="display:none;">Last error: –</span>
+      </div>
+      <div class="pill" id="pillFacility">Facility: –</div>
+    </div>
+
+    <div class="actions">
+      <button class="secondary" onclick="location.reload()">Refresh</button>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div style="display:flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+          <div>
+            <div style="font-weight:700;">Events over time</div>
+            <div class="label" id="metaTimeseries">–</div>
+          </div>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <button class="secondary" id="btnTs1h" type="button">Last 1h</button>
+            <button class="secondary" id="btnTs24h" type="button">Last 24h</button>
+          </div>
+        </div>
+        <div class="chartWrap"><canvas id="chartTimeseries" aria-label="Events over time line chart"></canvas></div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+          <div>
+            <div style="font-weight:700;">Top locations</div>
+            <div class="label" id="metaTopLocations">–</div>
+          </div>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <button class="secondary" id="btnLoc1h" type="button">Last 1h</button>
+            <button class="secondary" id="btnLoc24h" type="button">Last 24h</button>
+            <button class="secondary" id="btnLoc7d" type="button">Last 7d</button>
+          </div>
+        </div>
+        <div class="chartWrap"><canvas id="chartTopLocations" aria-label="Top locations bar chart"></canvas></div>
+      </div>
+
+      <div class="card">
+        <div style="font-weight:700;">Shift breakdown (last 24h)</div>
+        <div class="label" id="metaShift">–</div>
+        <div class="chartWrap"><canvas id="chartShift" aria-label="Shift breakdown bar chart"></canvas></div>
+      </div>
+
+      <div class="card">
+        <div style="font-weight:700;">Vendors (Pareto-ish)</div>
+        <div class="label" id="metaVendors">–</div>
+        <div class="chartWrap"><canvas id="chartVendors" aria-label="Vendors pareto chart"></canvas></div>
+      </div>
+
+      <div class="card" style="grid-column: 1 / -1;">
+        <div style="display:flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+          <div>
+            <div style="font-weight:700;">New vs repeat locations</div>
+            <div class="label" id="metaNewRepeat">–</div>
+          </div>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <button class="secondary" id="btnNr1h" type="button">Last 1h</button>
+            <button class="secondary" id="btnNr24h" type="button">Last 24h</button>
+            <button class="secondary" id="btnNr7d" type="button">Last 7d</button>
+          </div>
+        </div>
+        <div class="chartWrap"><canvas id="chartNewRepeat" aria-label="New vs repeat donut chart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="label" style="margin-top: 10px;" id="lastUpdated">Last updated: –</div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script>
+    const REFRESH_SECONDS = 10;
+
+    function setPill(el, text, klass) {
+      el.className = 'pill' + (klass ? ' ' + klass : '');
+      el.textContent = text;
+    }
+
+    async function loadStatus() {
+      const res = await fetch('/api/status', { cache: 'no-store' });
+      const s = await res.json();
+
+      document.getElementById('title').textContent = `Manual Receiving ATC - Visualizations - ${s.facility_id || '–'}`;
+      document.getElementById('pillFacility').textContent = `Facility: ${s.facility_id || '–'}`;
+
+      const pillState = document.getElementById('pillState');
+      if (s.state === 'running') setPill(pillState, 'Running', 'ok');
+      else if (s.state === 'error') setPill(pillState, 'Error', 'bad');
+      else setPill(pillState, s.state || 'Starting…', 'warn');
+
+      const lastQuery = s.last_query_end || s.last_query_start || null;
+      document.getElementById('pillLastQuery').textContent = lastQuery ? `Last query: ${lastQuery}` : 'Last query: –';
+
+      const errPill = document.getElementById('pillLastError');
+      if (s.last_error) {
+        errPill.style.display = 'inline-block';
+        errPill.textContent = `Last error: ${s.last_error}`;
+        errPill.className = 'pill bad';
+      } else {
+        errPill.style.display = 'none';
+      }
+    }
+
+    function parseDt(dtStr) {
+      const iso = String(dtStr || '').replace(' ', 'T');
+      const dt = new Date(iso);
+      return Number.isNaN(dt.getTime()) ? null : dt;
+    }
+
+    function bucketKey5m(dt) {
+      const ms = dt.getTime();
+      const bucketMs = Math.floor(ms / (5 * 60 * 1000)) * (5 * 60 * 1000);
+      return bucketMs;
+    }
+
+    function bucketKey1h(dt) {
+      const ms = dt.getTime();
+      const bucketMs = Math.floor(ms / (60 * 60 * 1000)) * (60 * 60 * 1000);
+      return bucketMs;
+    }
+
+    function topKey(map) {
+      let bestK = '';
+      let bestC = 0;
+      for (const [k, c] of map.entries()) {
+        if (c > bestC) { bestK = k; bestC = c; }
+      }
+      return bestK;
+    }
+
+    let chartTimeseries, chartTopLocations, chartShift, chartVendors, chartNewRepeat;
+
+    // UI modes
+    let tsMode = '24h';       // '1h' | '24h'
+    let locMode = '1h';      // '1h' | '24h' | '7d'
+    let nrMode = '24h';      // '1h' | '24h' | '7d'
+
+    function ensureCharts() {
+      if (!window.Chart) return;
+
+      const baseOpts = {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: { legend: { display: false } },
+      };
+
+      if (!chartTimeseries) {
+        chartTimeseries = new Chart(document.getElementById('chartTimeseries'), {
+          type: 'line',
+          data: { labels: [], datasets: [{ label: 'Events', data: [], borderColor: '#0071ce', backgroundColor: 'rgba(0,113,206,0.15)', fill: true, tension: 0.25 }] },
+          options: { ...baseOpts, scales: { y: { beginAtZero: true } } }
+        });
+      }
+
+      if (!chartTopLocations) {
+        chartTopLocations = new Chart(document.getElementById('chartTopLocations'), {
+          type: 'bar',
+          data: { labels: [], datasets: [{ label: 'Count', data: [], backgroundColor: '#0071ce' }] },
+          options: { ...baseOpts, scales: { y: { beginAtZero: true } } }
+        });
+      }
+
+      if (!chartShift) {
+        chartShift = new Chart(document.getElementById('chartShift'), {
+          type: 'bar',
+          data: { labels: [], datasets: [{ label: 'Count', data: [], backgroundColor: '#334e68' }] },
+          options: { ...baseOpts, scales: { y: { beginAtZero: true } } }
+        });
+      }
+
+      if (!chartVendors) {
+        chartVendors = new Chart(document.getElementById('chartVendors'), {
+          type: 'bar',
+          data: { labels: [], datasets: [{ label: 'Count', data: [], backgroundColor: '#ffc220' }] },
+          options: { ...baseOpts, scales: { y: { beginAtZero: true } } }
+        });
+      }
+
+      if (!chartNewRepeat) {
+        chartNewRepeat = new Chart(document.getElementById('chartNewRepeat'), {
+          type: 'doughnut',
+          data: { labels: ['New (last hour)', 'Repeat (seen earlier today)'], datasets: [{ data: [0, 0], backgroundColor: ['#0071ce', '#334e68'] }] },
+          options: { responsive: true, maintainAspectRatio: false }
+        });
+      }
+    }
+
+    async function loadEventsAndRender() {
+      const res = await fetch('/api/events', { cache: 'no-store' });
+      const data = await res.json();
+      const events = data.events || [];
+
+      const now = new Date();
+      const oneHourAgo = new Date(now.getTime() - 60*60000);
+      const dayAgo = new Date(now.getTime() - 24*60*60000);
+      const weekAgo = new Date(now.getTime() - 7*24*60*60000);
+
+      const last7d = [];
+      const last24h = [];
+      const last1h = [];
+
+      for (const e of events) {
+        const dt = parseDt(e.rec_dt);
+        if (!dt) continue;
+        if (dt >= weekAgo) last7d.push({ ...e, _dt: dt });
+        if (dt >= dayAgo) last24h.push({ ...e, _dt: dt });
+        if (dt >= oneHourAgo) last1h.push({ ...e, _dt: dt });
+      }
+
+      // 1) Timeseries
+      // - Last 1h: 5-min buckets
+      // - Last 24h: 1-hour buckets
+      const tsSrc = tsMode === '1h' ? last1h : last24h;
+      const bucketFn = tsMode === '1h' ? bucketKey5m : bucketKey1h;
+      const stepMs = tsMode === '1h' ? 5 * 60 * 1000 : 60 * 60 * 1000;
+      const startDt = tsMode === '1h' ? oneHourAgo : dayAgo;
+
+      const buckets = new Map();
+      for (const e of tsSrc) {
+        const k = bucketFn(e._dt);
+        buckets.set(k, (buckets.get(k) || 0) + 1);
+      }
+
+      const startMs = bucketFn(startDt);
+      const endMs = bucketFn(now);
+      const keys = [];
+      for (let ms = startMs; ms <= endMs; ms += stepMs) keys.push(ms);
+
+      const labels = keys.map(ms => {
+        const d = new Date(ms);
+        if (tsMode === '1h') return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return d.toLocaleTimeString([], { hour: '2-digit' });
+      });
+      const values = keys.map(ms => buckets.get(ms) || 0);
+
+      document.getElementById('metaTimeseries').textContent = `${tsMode === '1h' ? 'Last 1h' : 'Last 24h'} • ${tsSrc.length} event(s)`;
+      chartTimeseries.data.labels = labels;
+      chartTimeseries.data.datasets[0].data = values;
+      chartTimeseries.update();
+
+      // 2) Top locations (1h / 24h / 7d)
+      const src = locMode === '7d' ? last7d : (locMode === '24h' ? last24h : last1h);
+      const byLoc = new Map();
+      for (const e of src) {
+        const loc = String(e.location_id || '').trim();
+        if (!loc) continue;
+        byLoc.set(loc, (byLoc.get(loc) || 0) + 1);
+      }
+      const locRanked = Array.from(byLoc.entries()).sort((a,b)=>b[1]-a[1]).slice(0, 10);
+      const locLabel = locMode === '7d' ? 'Last 7d' : (locMode === '24h' ? 'Last 24h' : 'Last 1h');
+      document.getElementById('metaTopLocations').textContent = `${locLabel} • ${src.length} event(s)`;
+      chartTopLocations.data.labels = locRanked.map(x => x[0]);
+      chartTopLocations.data.datasets[0].data = locRanked.map(x => x[1]);
+      chartTopLocations.update();
+
+      // 3) Shift breakdown (always 7d)
+      const shifts = ['Shift A1','Shift A2','Shift B1','Off Shift'];
+      const shiftCounts = new Map(shifts.map(s => [s, 0]));
+      for (const e of last7d) {
+        const s = String(e.shift_label || 'Off Shift');
+        shiftCounts.set(s, (shiftCounts.get(s) || 0) + 1);
+      }
+      document.getElementById('metaShift').textContent = `Last 7d • ${last7d.length} event(s)`;
+      chartShift.data.labels = shifts;
+      chartShift.data.datasets[0].data = shifts.map(s => shiftCounts.get(s) || 0);
+      chartShift.update();
+
+      // 4) Vendors (top 10, always 7d)
+      const byVendor = new Map();
+      for (const e of last7d) {
+        const v = String(e.vendor_name || '').trim() || '(blank)';
+        byVendor.set(v, (byVendor.get(v) || 0) + 1);
+      }
+      const vRanked = Array.from(byVendor.entries()).sort((a,b)=>b[1]-a[1]).slice(0, 10);
+      document.getElementById('metaVendors').textContent = `Top 10 • Last 7d`;
+      chartVendors.data.labels = vRanked.map(x => x[0]);
+      chartVendors.data.datasets[0].data = vRanked.map(x => x[1]);
+      chartVendors.update();
+
+      // 5) New vs repeat locations
+      // We interpret this as:
+      // - pick a "recent" slice inside the selected window
+      // - compare against "earlier" slice in the same window
+      //   * 1h mode: recent=last 15 min, earlier=rest of the hour
+      //   * 24h mode: recent=last 1 hour, earlier=rest of the day
+      //   * 7d mode: recent=last 24 hours, earlier=rest of the week
+
+      let recentCutoff;
+      let windowStart;
+      if (nrMode === '1h') {
+        windowStart = oneHourAgo;
+        recentCutoff = new Date(now.getTime() - 15*60000);
+      } else if (nrMode === '24h') {
+        windowStart = dayAgo;
+        recentCutoff = oneHourAgo;
+      } else {
+        windowStart = weekAgo;
+        recentCutoff = dayAgo;
+      }
+
+      const windowEvents = last7d.filter(e => e._dt >= windowStart);
+      const recentLocs = new Set(windowEvents.filter(e => e._dt >= recentCutoff).map(e => String(e.location_id || '').trim()).filter(Boolean));
+      const earlierLocs = new Set(windowEvents.filter(e => e._dt < recentCutoff).map(e => String(e.location_id || '').trim()).filter(Boolean));
+
+      let repeat = 0;
+      let fresh = 0;
+      for (const l of recentLocs) {
+        if (earlierLocs.has(l)) repeat += 1;
+        else fresh += 1;
+      }
+
+      const nrLabel = nrMode === '7d' ? 'Last 7d' : (nrMode === '24h' ? 'Last 24h' : 'Last 1h');
+      document.getElementById('metaNewRepeat').textContent = `${nrLabel} • Recent locations: ${recentLocs.size}`;
+      chartNewRepeat.data.datasets[0].data = [fresh, repeat];
+      chartNewRepeat.update();
+
+      document.getElementById('lastUpdated').textContent = 'Last updated: ' + new Date().toLocaleString();
+    }
+
+    async function tick() {
+      try {
+        ensureCharts();
+        await Promise.all([loadStatus(), loadEventsAndRender()]);
+      } catch (e) {
+        console.log(e);
+      }
+    }
+
+    document.getElementById('btnTs1h').addEventListener('click', () => { tsMode = '1h'; tick(); });
+    document.getElementById('btnTs24h').addEventListener('click', () => { tsMode = '24h'; tick(); });
+
+    document.getElementById('btnLoc1h').addEventListener('click', () => { locMode = '1h'; tick(); });
+    document.getElementById('btnLoc24h').addEventListener('click', () => { locMode = '24h'; tick(); });
+    document.getElementById('btnLoc7d').addEventListener('click', () => { locMode = '7d'; tick(); });
+
+    document.getElementById('btnNr1h').addEventListener('click', () => { nrMode = '1h'; tick(); });
+    document.getElementById('btnNr24h').addEventListener('click', () => { nrMode = '24h'; tick(); });
+    document.getElementById('btnNr7d').addEventListener('click', () => { nrMode = '7d'; tick(); });
+
+    tick();
+    setInterval(tick, REFRESH_SECONDS * 1000);
+  </script>
+</body>
+</html>

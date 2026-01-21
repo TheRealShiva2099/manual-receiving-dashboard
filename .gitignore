@@ -28,6 +28,11 @@ atc_state.json
 atc_status.json
 *_cache.json
 
+# Email/Graph local auth state
+msal_token_cache.bin
+atc_email_state.json
+outbox_emails/
+
 # Generated HTML outputs (templates are committed)
 atc_dashboard.html
 atc_analytics.html

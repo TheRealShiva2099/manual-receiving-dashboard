@@ -52,6 +52,16 @@
   </header>
 
   <main>
+    <nav class="card" aria-label="Navigation" style="display:flex; gap:8px; flex-wrap: wrap; align-items:center; justify-content: space-between;">
+      <div style="display:flex; gap:8px; flex-wrap: wrap;">
+        <a class="btn" href="/">Operations</a>
+        <a class="btn" href="/viz">Visualizations</a>
+        <a class="btn" href="/analytics" aria-current="page">Analytics (QE)</a>
+        <a class="btn" href="/roster">Roster</a>
+      </div>
+      <div class="label">Switch pages</div>
+    </nav>
+
     <div class="card status" aria-live="polite">
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <span class="pill" id="pillState">Starting…</span>
@@ -62,7 +72,6 @@
     </div>
 
     <div class="actions">
-      <a class="btn" href="/">← Back to Operations</a>
       <button class="secondary" id="refreshAnalyticsBtn" type="button">Refresh Analytics (runs BigQuery)</button>
     </div>
 

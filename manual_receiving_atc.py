@@ -34,6 +34,8 @@ from typing import Any, Iterable
 
 from plyer import notification
 
+from atc_delivery_notifications import notify_new_deliveries
+
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "atc_config.json"
@@ -44,6 +46,10 @@ DASHBOARD_PATH = BASE_DIR / "atc_dashboard.html"
 TEMPLATE_PATH = BASE_DIR / "dashboard_template.html"
 ANALYTICS_PATH = BASE_DIR / "atc_analytics.html"
 ANALYTICS_TEMPLATE_PATH = BASE_DIR / "analytics_template.html"
+VIZ_PATH = BASE_DIR / "atc_viz.html"
+VIZ_TEMPLATE_PATH = BASE_DIR / "viz_template.html"
+ROSTER_PATH = BASE_DIR / "atc_roster.html"
+ROSTER_TEMPLATE_PATH = BASE_DIR / "roster_template.html"
 LAST_QUERY_PATH = BASE_DIR / "last_atc_query.sql"
 
 
@@ -56,6 +62,7 @@ class AtcEvent:
     vendor_name: str
     delivery_number: str
     shift_label: str
+    case_qty: float
 
     def event_id(self) -> str:
         # Site decision: container_id is the unique identifier for a case.
@@ -172,6 +179,7 @@ WITH
       r.LOCATION_ID,
       r.MESSAGE_ID,
       r.RCV_SET_ON_CONVEYOR_IND,
+      SAFE_DIVIDE(r.ITEM_QTY, NULLIF(r.VNPK_QTY, 0)) AS CASE_QTY,
       r.ENTITY_OPERATION_TS
     FROM `wmt-edw-prod.US_SUPPLY_CHAIN_SCT_NONCAT_VM.RECEIVING_ITEM` r
     WHERE r.FACILITY = '{facility_id}'
@@ -198,6 +206,8 @@ SELECT
   CAST(c.ITEM_NBR AS STRING) AS item_nbr,
   {vendor_select},
   CAST(c.DELIVERY_NUMBER AS STRING) AS delivery_number,
+
+  CAST(r.CASE_QTY AS STRING) AS case_qty,
 
   CASE
     WHEN EXTRACT(DAYOFWEEK FROM DATETIME(r.ENTITY_OPERATION_TS, '{tz}')) IN (3,4,5,6)
@@ -354,6 +364,13 @@ def _parse_events_csv(csv_text: str) -> list[AtcEvent]:
             val = (row.get(name) or "").strip()
             return "" if val.upper() == "NULL" else val
 
+        def get_float(name: str) -> float:
+            s = get(name)
+            try:
+                return float(s) if s else 0.0
+            except ValueError:
+                return 0.0
+
         event = AtcEvent(
             rec_dt=get("rec_dt"),
             location_id=get("location_id"),
@@ -362,6 +379,7 @@ def _parse_events_csv(csv_text: str) -> list[AtcEvent]:
             vendor_name=get("vendor_name"),
             delivery_number=get("delivery_number"),
             shift_label=get("shift_label"),
+            case_qty=get_float("case_qty"),
         )
 
         # Minimal sanity: ignore blank container ids.
@@ -439,12 +457,12 @@ def _event_key_from_dict(d: dict[str, Any]) -> str:
     return str(d.get("container_id", ""))
 
 
-def upsert_events_to_log(events: list[AtcEvent]) -> None:
+def upsert_events_to_log(events: list[AtcEvent], config: dict[str, Any]) -> None:
     """Persist events for the dashboard.
 
-    Important behavior change:
-    - Dashboard should show *all* events we know about (last 24h locally),
-      not only those that are "new" for notification.
+    Important behavior:
+    - We keep a rolling local event log for the dashboard/viz pages.
+    - Retention window is controlled by config.monitoring.event_log_retention_days.
 
     We still keep notifications based on `new_events` separately.
     """
@@ -452,7 +470,8 @@ def upsert_events_to_log(events: list[AtcEvent]) -> None:
     payload = load_events_log()
     existing: list[dict[str, Any]] = payload.get("events", [])
 
-    cutoff = datetime.now() - timedelta(hours=24)
+    retention_days = int(config.get("monitoring", {}).get("event_log_retention_days", 1))
+    cutoff = datetime.now() - timedelta(days=retention_days)
 
     def parse_dt(s: str) -> datetime | None:
         s = (s or "").strip()
@@ -480,7 +499,7 @@ def upsert_events_to_log(events: list[AtcEvent]) -> None:
         except ValueError:
             return None
 
-    # Keep only last 24h from existing.
+    # Keep only within retention window from existing.
     kept: list[dict[str, Any]] = []
     for e in existing:
         rec_dt = parse_dt(str(e.get("rec_dt", "")))
@@ -507,6 +526,8 @@ def upsert_events_to_log(events: list[AtcEvent]) -> None:
                     "vendor_name": e.vendor_name,
                     "delivery_number": e.delivery_number,
                     "shift_label": e.shift_label,
+                "case_qty": e.case_qty,
+                    "case_qty": e.case_qty,
                 }
             )
         else:
@@ -518,6 +539,7 @@ def upsert_events_to_log(events: list[AtcEvent]) -> None:
                 "vendor_name": e.vendor_name,
                 "delivery_number": e.delivery_number,
                 "shift_label": e.shift_label,
+                "case_qty": e.case_qty,
                 "detected_at": _now_iso(),
             }
 
@@ -560,6 +582,32 @@ def _write_analytics_html(config: dict[str, Any]) -> None:
     # Fallback (non-fatal)
     ANALYTICS_PATH.write_text(
         "<html><body><h1>Analytics template missing</h1></body></html>",
+        encoding="utf-8",
+    )
+
+
+def _write_viz_html(config: dict[str, Any]) -> None:
+    """Write the visualizations page file (served at /viz)."""
+
+    if VIZ_TEMPLATE_PATH.exists():
+        VIZ_PATH.write_text(VIZ_TEMPLATE_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+        return
+
+    VIZ_PATH.write_text(
+        "<html><body><h1>Viz template missing</h1></body></html>",
+        encoding="utf-8",
+    )
+
+
+def _write_roster_html(config: dict[str, Any]) -> None:
+    """Write the roster management page file (served at /roster)."""
+
+    if ROSTER_TEMPLATE_PATH.exists():
+        ROSTER_PATH.write_text(ROSTER_TEMPLATE_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+        return
+
+    ROSTER_PATH.write_text(
+        "<html><body><h1>Roster template missing</h1></body></html>",
         encoding="utf-8",
     )
 
@@ -624,6 +672,8 @@ def main() -> None:
 
     _write_dashboard_html(config)
     _write_analytics_html(config)
+    _write_viz_html(config)
+    _write_roster_html(config)
     # Ensure event log exists so the dashboard API always has something to serve.
     if not EVENTS_LOG_PATH.exists():
         save_events_log([])
@@ -689,7 +739,25 @@ def main() -> None:
             )
 
             events, new_events = run_once(config)
-            upsert_events_to_log(events)
+            upsert_events_to_log(events, config)
+
+            # Delivery emails (outbox preview mode while Graph admin consent is pending)
+            email_cfg = config.get("email_notifications", {})
+            if bool(email_cfg.get("enabled", False)) or bool(email_cfg.get("preview_outbox", True)):
+                new_event_dicts = [
+                    {
+                        "rec_dt": e.rec_dt,
+                        "location_id": e.location_id,
+                        "container_id": e.container_id,
+                        "item_nbr": e.item_nbr,
+                        "vendor_name": e.vendor_name,
+                        "delivery_number": e.delivery_number,
+                        "shift_label": e.shift_label,
+                        "case_qty": e.case_qty,
+                    }
+                    for e in new_events
+                ]
+                notify_new_deliveries(base_dir=BASE_DIR, config=config, new_events=new_event_dicts)
 
             # success resets breaker
             consecutive_failures = 0

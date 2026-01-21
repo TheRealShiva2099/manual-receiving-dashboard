@@ -15,7 +15,8 @@
     "bq_timeout_seconds": 900,
     "facility_id": "US-07377",
     "timezone": "America/New_York",
-    "overflow_locations": ["EOF", "WOF"]
+    "overflow_locations": ["EOF", "WOF"],
+    "event_log_retention_days": 7
   },
   "safety": {
     "kill_switch_file": "STOP_ATC.txt",
@@ -40,5 +41,18 @@
     "duration_seconds": 600,
     "sound_enabled": true,
     "app_name": "Manual Receiving ATC"
+  },
+  "email_notifications": {
+    "enabled": false,
+    "preview_outbox": true,
+    "mode": "microsoft_graph",
+    "graph": {
+      "tenant": "3cbcc3d3-094d-4006-9849-0d11d61f484d",
+      "client_id": "18586ccc-256e-4886-abec-cc5290d7349f",
+      "sender": "shiva.ilayanambi@walmart.com",
+      "token_cache_file": "msal_token_cache.bin"
+    },
+    "recipients": ["shiva.ilayanambi@walmart.com"],
+    "max_emails_per_hour": 20
   }
 }

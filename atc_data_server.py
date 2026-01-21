@@ -109,6 +109,11 @@ def create_app(base_dir: Path) -> Flask:
 
     analytics_path = base_dir / "atc_analytics.html"
     analytics_template_path = base_dir / "analytics_template.html"
+    viz_path = base_dir / "atc_viz.html"
+    viz_template_path = base_dir / "viz_template.html"
+    roster_path = base_dir / "atc_roster.html"
+    roster_template_path = base_dir / "roster_template.html"
+    roster_json_path = base_dir / "atc_roster.json"
 
     @app.get("/")
     def dashboard() -> Response:
@@ -134,6 +139,89 @@ def create_app(base_dir: Path) -> Flask:
             status=500,
             mimetype="text/plain",
         )
+
+    @app.get("/viz")
+    def viz() -> Response:
+        if viz_path.exists():
+            return send_file(viz_path)
+        if viz_template_path.exists():
+            return send_file(viz_template_path)
+        return Response(
+            "Viz template missing. Reinstall the ATC package.",
+            status=500,
+            mimetype="text/plain",
+        )
+
+    @app.get("/roster")
+    def roster() -> Response:
+        if roster_path.exists():
+            return send_file(roster_path)
+        if roster_template_path.exists():
+            return send_file(roster_template_path)
+        return Response(
+            "Roster template missing. Reinstall the ATC package.",
+            status=500,
+            mimetype="text/plain",
+        )
+
+    def _default_roster() -> dict[str, Any]:
+        return {
+            "version": 1,
+            "updated_at": None,
+            "roles": {
+                "inbound": {"Shift A1": [], "Shift A2": [], "Shift B1": [], "Off Shift": []}
+            },
+        }
+
+    @app.get("/api/roster")
+    def api_roster_get() -> Response:
+        if not roster_json_path.exists():
+            roster_json_path.write_text(json.dumps(_default_roster(), indent=2), encoding="utf-8")
+
+        try:
+            payload = json.loads(roster_json_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            payload = _default_roster()
+
+        if not isinstance(payload, dict):
+            payload = _default_roster()
+
+        return jsonify(payload)
+
+    @app.post("/api/roster")
+    def api_roster_post() -> Response:
+        try:
+            incoming = request.get_json(force=True)
+        except Exception:
+            return jsonify({"ok": False, "error": "Invalid JSON"}), 400
+
+        if not isinstance(incoming, dict) or "roles" not in incoming:
+            return jsonify({"ok": False, "error": "Invalid roster schema"}), 400
+
+        roles = incoming.get("roles")
+        if not isinstance(roles, dict):
+            return jsonify({"ok": False, "error": "Invalid roles"}), 400
+
+        def norm_list(x: Any) -> list[str]:
+            if not isinstance(x, list):
+                return []
+            out: list[str] = []
+            for v in x:
+                s = str(v).strip().lower()
+                if s and "@" in s:
+                    out.append(s)
+            return sorted(list(set(out)))
+
+        # Normalize + enforce known shifts (inbound only)
+        shifts = ["Shift A1", "Shift A2", "Shift B1", "Off Shift"]
+        clean = _default_roster()
+        src = roles.get("inbound", {}) if isinstance(roles.get("inbound"), dict) else {}
+        for sh in shifts:
+            clean["roles"]["inbound"][sh] = norm_list(src.get(sh, []))
+
+        clean["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        roster_json_path.write_text(json.dumps(clean, indent=2), encoding="utf-8")
+        return jsonify({"ok": True, "roster": clean})
 
     @app.get("/api/events")
     def api_events() -> Response:
@@ -231,51 +319,56 @@ def create_app(base_dir: Path) -> Flask:
 
         def build_rows() -> list[dict[str, Any]]:
             facility_id = str(cfg.get("monitoring", {}).get("facility_id", "US-07377"))
-            overflow_locations = cfg.get("monitoring", {}).get("overflow_locations", [])
-
-            overflow_filter = ""
-            if overflow_locations:
-                quoted = ", ".join([f"'{x}'" for x in overflow_locations])
-                overflow_filter = f" AND r.LOCATION_ID NOT IN ({quoted})"
 
             sql = f"""
-WITH base AS (
-  SELECT
-    r.CONTAINER_ID,
-    CAST(r.ITEM_NBR AS STRING) AS item_nbr,
-    SAFE_DIVIDE(r.ITEM_QTY, NULLIF(r.VNPK_QTY, 0)) AS case_qty,
-    c.DELIVERY_NUMBER
-  FROM `wmt-edw-prod.US_SUPPLY_CHAIN_SCT_NONCAT_VM.RECEIVING_ITEM` r
-  JOIN `wmt-edw-prod.US_SUPPLY_CHAIN_SCT_NONCAT_VM.CONTAINER_ITEM_OPERATIONS` c
-    ON r.CONTAINER_ID = c.CONTAINER_ID
-  WHERE r.FACILITY = '{facility_id}'
-    AND r.ENTITY_OPERATION_TS >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {days} DAY)
-    AND r.RCV_SET_ON_CONVEYOR_IND = TRUE
-    AND r.CONTAINER_ID <> r.MESSAGE_ID
-    {overflow_filter}
-), vendor_lkp AS (
-  SELECT
-    d.DELIVERY_NUMBER,
-    ANY_VALUE(o.VNDR_NAME) AS vendor_name
-  FROM `wmt-edw-prod.US_SUPPLY_CHAIN_SCT_NONCAT_VM.DELIVERY_DOC` d
-  LEFT JOIN `wmt-cp-prod.TRANS.ICC_ORD_SCH` o
-    ON d.OMS_PO_NBR = CAST(o.OMS_PO_NBR AS STRING)
-  GROUP BY d.DELIVERY_NUMBER
-), item_vendor AS (
-  SELECT
-    b.item_nbr,
-    COALESCE(CAST(v.vendor_name AS STRING), '') AS vendor_name,
-    SUM(COALESCE(b.case_qty, 0)) AS total_cases
-  FROM base b
-  LEFT JOIN vendor_lkp v
-    ON b.DELIVERY_NUMBER = v.DELIVERY_NUMBER
-  GROUP BY b.item_nbr, vendor_name
-)
+WITH
+  r_latest AS (
+    SELECT
+      r.CONTAINER_ID,
+      CAST(r.ITEM_NBR AS STRING) AS item_nbr,
+      SAFE_DIVIDE(r.ITEM_QTY, NULLIF(r.VNPK_QTY, 0)) AS case_qty,
+      r.ENTITY_OPERATION_TS
+    FROM `wmt-edw-prod.US_SUPPLY_CHAIN_SCT_NONCAT_VM.RECEIVING_ITEM` r
+    WHERE r.FACILITY = '{facility_id}'
+      AND r.RCV_SET_ON_CONVEYOR_IND = TRUE
+      AND r.CONTAINER_ID <> r.MESSAGE_ID
+      AND r.ENTITY_OPERATION_TS >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {days} DAY)
+    QUALIFY ROW_NUMBER() OVER (
+      PARTITION BY r.CONTAINER_ID
+      ORDER BY r.ENTITY_OPERATION_TS DESC
+    ) = 1
+  ),
+  c_filtered AS (
+    SELECT
+      c.CONTAINER_ID,
+      ANY_VALUE(c.DELIVERY_NUMBER) AS DELIVERY_NUMBER
+    FROM `wmt-edw-prod.US_SUPPLY_CHAIN_SCT_NONCAT_VM.CONTAINER_ITEM_OPERATIONS` c
+    WHERE c.FACILITY = '{facility_id}'
+      AND c.CONTAINER_CREATE_TS >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {days} DAY)
+      AND c.CONTAINER_ID IN (SELECT CONTAINER_ID FROM r_latest)
+    GROUP BY c.CONTAINER_ID
+  ),
+  vendor_map AS (
+    SELECT
+      d.DELIVERY_NUMBER,
+      ANY_VALUE(o.VNDR_NAME) AS vendor_name
+    FROM `wmt-edw-prod.US_SUPPLY_CHAIN_SCT_NONCAT_VM.DELIVERY_DOC` d
+    LEFT JOIN `wmt-cp-prod.TRANS.ICC_ORD_SCH` o
+      ON d.OMS_PO_NBR = CAST(o.OMS_PO_NBR AS STRING)
+    WHERE d.DELIVERY_NUMBER IN (SELECT DELIVERY_NUMBER FROM c_filtered)
+    GROUP BY d.DELIVERY_NUMBER
+  )
+
 SELECT
-  item_nbr,
-  vendor_name,
-  total_cases
-FROM item_vendor
+  COALESCE(v.vendor_name, '') AS vendor_name,
+  r.item_nbr AS item_nbr,
+  SUM(r.case_qty) AS total_cases
+FROM r_latest r
+JOIN c_filtered c
+  ON r.CONTAINER_ID = c.CONTAINER_ID
+LEFT JOIN vendor_map v
+  ON c.DELIVERY_NUMBER = v.DELIVERY_NUMBER
+GROUP BY vendor_name, item_nbr
 ORDER BY total_cases DESC
 LIMIT {limit}
 """.strip()

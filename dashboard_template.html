@@ -58,6 +58,16 @@
   </header>
 
   <main>
+    <nav class="card" aria-label="Navigation" style="display:flex; gap:8px; flex-wrap: wrap; align-items:center; justify-content: space-between;">
+      <div style="display:flex; gap:8px; flex-wrap: wrap;">
+        <a class="btn" href="/" aria-current="page">Operations</a>
+        <a class="btn" href="/viz">Visualizations</a>
+        <a class="btn" href="/analytics">Analytics (QE)</a>
+        <a class="btn" href="/roster">Roster</a>
+      </div>
+      <div class="label">Switch pages</div>
+    </nav>
+
     <div class="card status" aria-live="polite">
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
         <span class="pill" id="pillState">Starting…</span>
@@ -71,6 +81,33 @@
       <div class="card"><div class="kpi" id="kpiEvents">–</div><div class="label">Events (last hour)</div></div>
       <div class="card"><div class="kpi" id="kpiLocations">–</div><div class="label">Locations affected (last hour)</div></div>
       <div class="card"><div class="kpi" id="kpiTopVendor">–</div><div class="label">Top vendor (last hour)</div></div>
+    </div>
+
+    <div class="card" aria-label="Top 5 locations last hour" style="margin: 12px 0;">
+      <div style="display:flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+        <div>
+          <div style="font-weight:700;">Top 5 Locations (last hour)</div>
+          <div class="label">Ranked by manual receiving count</div>
+        </div>
+        <div class="label" id="topLocMeta">–</div>
+      </div>
+
+      <div style="overflow-x:auto; margin-top:10px;">
+        <table aria-label="Top 5 Locations Table">
+          <thead>
+            <tr>
+              <th style="width:70px;">Rank</th>
+              <th>Location</th>
+              <th style="width:90px;">Count</th>
+              <th>Top Item</th>
+              <th>Top Vendor</th>
+            </tr>
+          </thead>
+          <tbody id="topLocBody">
+            <tr><td colspan="5" class="label">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <div class="card" aria-label="Top 3 items last hour" style="margin: 12px 0;">
@@ -101,7 +138,6 @@
     </div>
 
     <div class="actions">
-      <a class="btn" href="/analytics">Analytics (QE)</a>
       <button class="secondary" onclick="location.reload()">Refresh</button>
       <button onclick="exportCsv()">Export CSV</button>
       <a class="btn" id="tableauBtn" href="#" target="_blank" rel="noopener noreferrer" style="display:none;">More Data (Tableau)</a>
@@ -211,6 +247,78 @@
     document.getElementById('kpiLocations').textContent = Array.from(locations).filter(Boolean).length;
     document.getElementById('kpiTopVendor').textContent = topVendor || '–';
 
+    // Top 5 locations (last hour)
+    const byLoc = new Map();
+    for (const e of lastHour) {
+      const loc = String(e.location_id || '').trim();
+      if (!loc) continue;
+
+      if (!byLoc.has(loc)) {
+        byLoc.set(loc, {
+          count: 0,
+          itemCounts: new Map(),
+          vendorCounts: new Map(),
+        });
+      }
+      const bucket = byLoc.get(loc);
+      bucket.count += 1;
+
+      const item = String(e.item_nbr || '').trim();
+      if (item) bucket.itemCounts.set(item, (bucket.itemCounts.get(item) || 0) + 1);
+
+      const v = String(e.vendor_name || '').trim();
+      if (v) bucket.vendorCounts.set(v, (bucket.vendorCounts.get(v) || 0) + 1);
+    }
+
+    function topKey(map) {
+      let bestK = '';
+      let bestC = 0;
+      for (const [k, c] of map.entries()) {
+        if (c > bestC) { bestK = k; bestC = c; }
+      }
+      return bestK || '–';
+    }
+
+    const topLocMeta = document.getElementById('topLocMeta');
+    const topLocBody = document.getElementById('topLocBody');
+
+    const locRanked = Array.from(byLoc.entries())
+      .map(([loc, v]) => ({
+        loc,
+        count: v.count,
+        topItem: topKey(v.itemCounts),
+        topVendor: topKey(v.vendorCounts),
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    if (lastHour.length === 0) {
+      topLocMeta.textContent = 'No events in last hour';
+      topLocBody.innerHTML = '<tr><td colspan="5" class="label">No locations to rank (last hour has 0 events).</td></tr>';
+    } else if (locRanked.length === 0) {
+      topLocMeta.textContent = 'No locations available';
+      topLocBody.innerHTML = '<tr><td colspan="5" class="label">Events exist, but location_id was blank.</td></tr>';
+    } else {
+      topLocMeta.textContent = `Based on ${lastHour.length} event(s)`;
+      topLocBody.innerHTML = '';
+      locRanked.forEach((r, idx) => {
+        const tr = document.createElement('tr');
+        const cells = [
+          `#${idx + 1}`,
+          r.loc,
+          String(r.count),
+          r.topItem,
+          r.topVendor,
+        ];
+        for (const c of cells) {
+          const td = document.createElement('td');
+          td.textContent = c;
+          tr.appendChild(td);
+        }
+        topLocBody.appendChild(tr);
+      });
+    }
+
     // Top 3 items (last hour)
     // We compute counts client-side so backend stays simple.
     const byItem = new Map();
@@ -287,7 +395,13 @@
     const tbody = document.getElementById('tbody');
     tbody.innerHTML = '';
 
+    // Render only last 24h in the main table (even if we retain 7d locally)
+    const dayAgoTs = now.getTime() - 24*60*60000;
+
     for (const e of events) {
+      const dt = new Date(String(e.rec_dt || '').replace(' ', 'T'));
+      if (Number.isNaN(dt.getTime()) || dt.getTime() < dayAgoTs) continue;
+
       const age = minutesBetween(now, String(e.rec_dt || ''));
       const tr = document.createElement('tr');
       tr.className = rowClass(age);
