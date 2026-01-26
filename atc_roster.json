@@ -1,11 +1,9 @@
 {
   "version": 1,
-  "updated_at": "2026-01-21 09:29:01",
+  "updated_at": "2026-01-22 12:40:58",
   "roles": {
     "inbound": {
-      "Shift A1": [
-        "shiva.ilayanambi@walmart.com"
-      ],
+      "Shift A1": [],
       "Shift A2": [],
       "Shift B1": [],
       "Off Shift": []

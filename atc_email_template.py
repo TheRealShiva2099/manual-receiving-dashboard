@@ -17,6 +17,7 @@ from typing import Iterable
 @dataclass(frozen=True)
 class DeliveryItemLine:
     item_nbr: str
+    item_desc: str
     vendor_name: str
     cases: float
     locations: list[str]
@@ -35,7 +36,7 @@ class DeliveryEmailSummary:
 
 def build_subject(s: DeliveryEmailSummary) -> str:
     # Keep it short for Outlook/mobile.
-    return f"MR Required: Delivery {s.delivery_number} ({s.facility_id}) - {len(s.items)} item(s), {round(s.total_cases, 1)} cases"
+    return f"MR Required: Delivery {s.delivery_number} ({s.facility_id}) - {len(s.items)} item(s)"
 
 
 def _fmt_list(xs: Iterable[str]) -> str:
@@ -62,14 +63,14 @@ def build_html(s: DeliveryEmailSummary) -> str:
             """
 <tr>
   <td style="padding:8px;border-bottom:1px solid #e6e8ee;">{item}</td>
+  <td style="padding:8px;border-bottom:1px solid #e6e8ee;">{desc}</td>
   <td style="padding:8px;border-bottom:1px solid #e6e8ee;">{vendor}</td>
-  <td style="padding:8px;border-bottom:1px solid #e6e8ee;text-align:right;">{cases}</td>
   <td style="padding:8px;border-bottom:1px solid #e6e8ee;">{locs}</td>
 </tr>
 """.format(
                 item=escape(str(line.item_nbr)),
+                desc=escape(str(line.item_desc or "")) or "–",
                 vendor=escape(str(line.vendor_name or "")) or "–",
-                cases=escape(_fmt_num(float(line.cases))),
                 locs=escape(_fmt_list(line.locations)),
             ).strip()
         )
@@ -80,8 +81,8 @@ def build_html(s: DeliveryEmailSummary) -> str:
   <thead>
     <tr style="background:#f0f4f8;">
       <th scope="col" style="text-align:left;padding:10px;border-bottom:1px solid #e6e8ee;">Item #</th>
+      <th scope="col" style="text-align:left;padding:10px;border-bottom:1px solid #e6e8ee;">Item Desc</th>
       <th scope="col" style="text-align:left;padding:10px;border-bottom:1px solid #e6e8ee;">Vendor</th>
-      <th scope="col" style="text-align:right;padding:10px;border-bottom:1px solid #e6e8ee;">Cases</th>
       <th scope="col" style="text-align:left;padding:10px;border-bottom:1px solid #e6e8ee;">Location(s)</th>
     </tr>
   </thead>
@@ -118,10 +119,6 @@ def build_html(s: DeliveryEmailSummary) -> str:
       <div style="padding:10px;border:1px solid #e6e8ee;border-radius:10px;min-width:220px;">
         <div style="font-size:12px;color:#627d98;">Locations involved</div>
         <div style="font-size:14px;font-weight:700;">{escape(_fmt_list(s.locations))}</div>
-      </div>
-      <div style="padding:10px;border:1px solid #e6e8ee;border-radius:10px;min-width:220px;">
-        <div style="font-size:12px;color:#627d98;">Total cases</div>
-        <div style="font-size:14px;font-weight:700;">{escape(_fmt_num(float(s.total_cases)))}</div>
       </div>
     </div>
 

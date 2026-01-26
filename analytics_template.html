@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Manual Receiving ATC - Analytics</title>
+  <title>Manual Receiving - Analytics</title>
   <style>
     :root {
       --wm-blue: #0071ce;
@@ -47,7 +47,7 @@
 </head>
 <body>
   <header>
-    <h1 id="title">Manual Receiving ATC - Analytics</h1>
+    <h1 id="title">Manual Receiving - Analytics</h1>
     <div class="sub">On-demand analytics (does not auto-run BigQuery queries)</div>
   </header>
 
@@ -90,12 +90,13 @@
             <tr>
               <th style="width:70px;">Rank</th>
               <th>Item #</th>
+              <th>Item Desc</th>
               <th>Top Vendor</th>
               <th style="width:180px;">Total Cases</th>
             </tr>
           </thead>
           <tbody id="topItemsBody">
-            <tr><td colspan="4" class="label">Loading…</td></tr>
+            <tr><td colspan="5" class="label">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -113,7 +114,7 @@
     const res = await fetch('/api/status', { cache: 'no-store' });
     const s = await res.json();
 
-    document.getElementById('title').textContent = `Manual Receiving ATC - Analytics - ${s.facility_id || '–'}`;
+    document.getElementById('title').textContent = `Manual Receiving - Analytics - ${s.facility_id || '–'}`;
     document.getElementById('pillFacility').textContent = `Facility: ${s.facility_id || '–'}`;
 
     const pillState = document.getElementById('pillState');
@@ -153,7 +154,7 @@
 
       if (!data.ok) {
         meta.textContent = data.error ? `Error: ${data.error}` : 'Error loading top items';
-        body.innerHTML = '<tr><td colspan="4" class="label">Failed to load.</td></tr>';
+        body.innerHTML = '<tr><td colspan="5" class="label">Failed to load.</td></tr>';
         return;
       }
 
@@ -168,7 +169,7 @@
 
       const rows = data.rows || [];
       if (rows.length === 0) {
-        body.innerHTML = '<tr><td colspan="4" class="label">No rows returned.</td></tr>';
+        body.innerHTML = '<tr><td colspan="5" class="label">No rows returned.</td></tr>';
         return;
       }
 
@@ -178,6 +179,7 @@
         const cells = [
           `#${idx + 1}`,
           String(r.item_nbr ?? ''),
+          String(r.item_desc ?? '–') || '–',
           String(r.vendor_name ?? '–') || '–',
           fmtNum(r.total_cases),
         ];

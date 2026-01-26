@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Manual Receiving ATC - Visualizations</title>
+  <title>Manual Receiving - Visualizations</title>
   <style>
     :root {
       --wm-blue: #0071ce;
@@ -50,7 +50,7 @@
 </head>
 <body>
   <header>
-    <h1 id="title">Manual Receiving ATC - Visualizations</h1>
+    <h1 id="title">Manual Receiving - Visualizations</h1>
     <div class="sub">Operations-first • Last 7 days • Auto-refreshes (no extra BigQuery load)</div>
   </header>
 
@@ -152,7 +152,7 @@
       const res = await fetch('/api/status', { cache: 'no-store' });
       const s = await res.json();
 
-      document.getElementById('title').textContent = `Manual Receiving ATC - Visualizations - ${s.facility_id || '–'}`;
+      document.getElementById('title').textContent = `Manual Receiving - Visualizations - ${s.facility_id || '–'}`;
       document.getElementById('pillFacility').textContent = `Facility: ${s.facility_id || '–'}`;
 
       const pillState = document.getElementById('pillState');

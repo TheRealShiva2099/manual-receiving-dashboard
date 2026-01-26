@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Manual Receiving ATC</title>
+  <title>Manual Receiving</title>
   <style>
     :root {
       --wm-blue: #0071ce;
@@ -19,13 +19,22 @@
     }
 
     body { font-family: Segoe UI, Arial, sans-serif; margin: 0; background: var(--bg); color: var(--text); }
+
+    .toastWrap { position: fixed; bottom: 12px; right: 12px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; max-width: min(420px, calc(100vw - 24px)); }
+    .toast { background: #ffffff; color: #102a43; border-radius: 12px; padding: 10px 12px; box-shadow: 0 10px 24px rgba(16,42,67,.18); border: 1px solid #e6e8ee; border-left: 6px solid #0071ce; }
+    .toast .trow { display:flex; align-items:center; justify-content: space-between; gap: 10px; }
+    .toast .t { font-weight: 800; font-size: 13px; }
+    .toast .b { margin-top: 4px; font-size: 12px; color: #334e68; line-height: 1.35; }
+    .toast .x { background: transparent; border: 0; color: #334e68; font-size: 16px; line-height: 1; padding: 6px; border-radius: 8px; cursor: pointer; }
+    .toast .x:focus { outline: 3px solid var(--wm-yellow); outline-offset: 2px; }
     header { background: var(--wm-blue); color: white; padding: 16px 20px; }
     header h1 { margin: 0; font-size: 18px; }
     header .sub { margin-top: 4px; color: #e6f0ff; font-size: 12px; }
 
-    main { padding: 16px 20px; max-width: 1200px; margin: 0 auto; }
-    .row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
-    .card { background: var(--card); border-radius: 10px; padding: 12px; box-shadow: 0 1px 2px rgba(16,42,67,.08); border: 1px solid var(--border); }
+    main { padding: 10px 12px; max-width: 1200px; margin: 0 auto; }
+    .row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
+    .row2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
+    .card { background: var(--card); border-radius: 10px; padding: 10px; box-shadow: 0 1px 2px rgba(16,42,67,.08); border: 1px solid var(--border); }
     .kpi { font-size: 26px; font-weight: 700; }
     .label { color: var(--muted); font-size: 12px; }
 
@@ -41,19 +50,20 @@
     button:focus, a.btn:focus { outline: 3px solid var(--wm-yellow); outline-offset: 2px; }
 
     table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(16,42,67,.08); border: 1px solid var(--border); }
-    th, td { padding: 10px; border-bottom: 1px solid var(--border); font-size: 12px; text-align: left; }
+    th, td { padding: 8px; border-bottom: 1px solid var(--border); font-size: 12px; text-align: left; }
     th { background: #f0f4f8; }
     tr.recent { background: var(--danger); }
     tr.medium { background: var(--warn); }
 
     .foot { margin-top: 10px; color: var(--muted); font-size: 12px; }
 
-    @media (max-width: 900px) { .row { grid-template-columns: 1fr; } }
+    @media (max-width: 900px) { .row, .row2 { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
+  <div class="toastWrap" id="toastWrap" aria-live="polite" aria-relevant="additions"></div>
   <header>
-    <h1 id="title">Manual Receiving ATC</h1>
+    <h1 id="title">Manual Receiving</h1>
     <div class="sub">Last 24 hours • Auto-refreshes</div>
   </header>
 
@@ -74,7 +84,26 @@
         <span class="pill" id="pillLastQuery">Last query: –</span>
         <span class="pill" id="pillLastError" style="display:none;">Last error: –</span>
       </div>
-      <div class="pill" id="pillFacility">Facility: –</div>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
+        <span class="pill" id="pillFacility">Facility: –</span>
+        <button class="secondary" onclick="location.reload()" type="button">Refresh</button>
+        <button onclick="exportCsv()" type="button">Export CSV</button>
+        <a class="btn" id="tableauBtn" href="#" target="_blank" rel="noopener noreferrer" style="display:none;">More Data (Tableau)</a>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:12px;" aria-label="Browser notifications">
+      <div style="display:flex; align-items:center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+        <div>
+          <div style="font-weight:700;">Browser notifications</div>
+          <div class="label">Shows a notification on this device when a new delivery is detected while this tab is open.</div>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap: wrap;">
+          <span class="pill" id="notifState">Notifications: unknown</span>
+          <button class="secondary" id="btnEnableNotif" type="button">Enable</button>
+          <button class="secondary" id="btnDisableNotif" type="button">Disable</button>
+        </div>
+      </div>
     </div>
 
     <div class="row" style="margin-top:12px;">
@@ -83,65 +112,63 @@
       <div class="card"><div class="kpi" id="kpiTopVendor">–</div><div class="label">Top vendor (last hour)</div></div>
     </div>
 
-    <div class="card" aria-label="Top 5 locations last hour" style="margin: 12px 0;">
-      <div style="display:flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
-        <div>
-          <div style="font-weight:700;">Top 5 Locations (last hour)</div>
-          <div class="label">Ranked by manual receiving count</div>
+    <div class="row2" style="margin: 10px 0;">
+      <div class="card" aria-label="Top 5 locations last hour">
+        <div style="display:flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+          <div>
+            <div style="font-weight:700;">Top 5 Locations (last hour)</div>
+            <div class="label">Ranked by manual receiving count</div>
+          </div>
+          <div class="label" id="topLocMeta">–</div>
         </div>
-        <div class="label" id="topLocMeta">–</div>
-      </div>
 
-      <div style="overflow-x:auto; margin-top:10px;">
-        <table aria-label="Top 5 Locations Table">
-          <thead>
-            <tr>
-              <th style="width:70px;">Rank</th>
-              <th>Location</th>
-              <th style="width:90px;">Count</th>
-              <th>Top Item</th>
-              <th>Top Vendor</th>
-            </tr>
-          </thead>
-          <tbody id="topLocBody">
-            <tr><td colspan="5" class="label">Loading…</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="card" aria-label="Top 3 items last hour" style="margin: 12px 0;">
-      <div style="display:flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
-        <div>
-          <div style="font-weight:700;">Top 3 Items (last hour)</div>
-          <div class="label">Ranked by manual receiving count</div>
+        <div style="overflow-x:auto; margin-top:8px;">
+          <table aria-label="Top 5 Locations Table">
+            <thead>
+              <tr>
+                <th style="width:70px;">Rank</th>
+                <th>Location</th>
+                <th style="width:90px;">Count</th>
+                <th>Top Item (Desc)</th>
+                <th>Top Vendor</th>
+              </tr>
+            </thead>
+            <tbody id="topLocBody">
+              <tr><td colspan="5" class="label">Loading…</td></tr>
+            </tbody>
+          </table>
         </div>
-        <div class="label" id="top3Meta">–</div>
       </div>
 
-      <div style="overflow-x:auto; margin-top:10px;">
-        <table aria-label="Top 3 Items Table">
-          <thead>
-            <tr>
-              <th style="width:70px;">Rank</th>
-              <th>Item #</th>
-              <th style="width:90px;">Count</th>
-              <th>Top Vendor</th>
-              <th>Top Location</th>
-            </tr>
-          </thead>
-          <tbody id="top3Body">
-            <tr><td colspan="5" class="label">Loading…</td></tr>
-          </tbody>
-        </table>
+      <div class="card" aria-label="Top 5 items last hour">
+        <div style="display:flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+          <div>
+            <div style="font-weight:700;">Top 5 Items (last hour)</div>
+            <div class="label">Ranked by manual receiving count</div>
+          </div>
+          <div class="label" id="top3Meta">–</div>
+        </div>
+
+        <div style="overflow-x:auto; margin-top:8px;">
+          <table aria-label="Top 5 Items Table">
+            <thead>
+              <tr>
+                <th style="width:70px;">Rank</th>
+                <th style="width:120px;">Item #</th>
+                <th>Item Desc</th>
+                <th style="width:90px;">Count</th>
+                <th>Top Vendor</th>
+                <th>Top Location</th>
+              </tr>
+            </thead>
+            <tbody id="top3Body">
+              <tr><td colspan="5" class="label">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
-    <div class="actions">
-      <button class="secondary" onclick="location.reload()">Refresh</button>
-      <button onclick="exportCsv()">Export CSV</button>
-      <a class="btn" id="tableauBtn" href="#" target="_blank" rel="noopener noreferrer" style="display:none;">More Data (Tableau)</a>
-    </div>
 
     <table aria-label="Manual Receiving Events">
       <thead>
@@ -150,6 +177,7 @@
           <th>Location</th>
           <th>Container</th>
           <th>Item</th>
+          <th>Item Desc</th>
           <th>Vendor</th>
           <th>Delivery</th>
           <th>Shift</th>
@@ -163,6 +191,200 @@
 
 <script>
   const REFRESH_SECONDS = 10;
+  const NOTIF_ENABLED_KEY = 'atc_browser_notifications_enabled';
+  const NOTIF_SEEN_DELIVERIES_KEY = 'atc_notif_seen_deliveries';
+  const NOTIF_SESSION_START_KEY = 'atc_notif_session_start';
+
+  function getNotifEnabled() {
+    return localStorage.getItem(NOTIF_ENABLED_KEY) === 'true';
+  }
+
+  function setNotifEnabled(v) {
+    localStorage.setItem(NOTIF_ENABLED_KEY, v ? 'true' : 'false');
+  }
+
+  function getSeenDeliveries() {
+    try {
+      const raw = localStorage.getItem(NOTIF_SEEN_DELIVERIES_KEY);
+      const obj = raw ? JSON.parse(raw) : {};
+      return (obj && typeof obj === 'object') ? obj : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function markSeenDelivery(deliveryNumber) {
+    if (!deliveryNumber) return;
+    const seen = getSeenDeliveries();
+    seen[String(deliveryNumber)] = new Date().toISOString();
+    // Keep it from growing forever
+    const keys = Object.keys(seen);
+    if (keys.length > 300) {
+      keys.sort();
+      for (const k of keys.slice(0, keys.length - 300)) delete seen[k];
+    }
+    localStorage.setItem(NOTIF_SEEN_DELIVERIES_KEY, JSON.stringify(seen));
+  }
+
+  function updateNotifUI() {
+    const pill = document.getElementById('notifState');
+    const enabled = getNotifEnabled();
+    const supported = 'Notification' in window;
+    if (!enabled) {
+      setPill(pill, 'Alerts: disabled', 'warn');
+      return;
+    }
+
+    if (!supported) {
+      // Still fine: we can do in-page toasts.
+      setPill(pill, 'Alerts: in-page only', 'ok');
+      return;
+    }
+
+    const perm = Notification.permission;
+    if (perm === 'granted') setPill(pill, 'Alerts: system + in-page', 'ok');
+    else if (perm === 'denied') {
+      // Common on http://IP:port because it's not a secure context.
+      setPill(pill, 'Alerts: in-page only (system blocked)', 'warn');
+    } else {
+      setPill(pill, 'Alerts: enable permission for system popups', 'warn');
+    }
+  }
+
+  async function enableNotifications() {
+    if (!('Notification' in window)) return;
+    setNotifEnabled(true);
+    if (Notification.permission === 'default') {
+      try { await Notification.requestPermission(); } catch (e) { /* ignore */ }
+    }
+    updateNotifUI();
+  }
+
+  function disableNotifications() {
+    setNotifEnabled(false);
+    updateNotifUI();
+  }
+
+  function showToast(title, body) {
+    const wrap = document.getElementById('toastWrap');
+    if (!wrap) return;
+
+    const t = document.createElement('div');
+    t.className = 'toast';
+
+    const top = document.createElement('div');
+    top.className = 'trow';
+
+    const head = document.createElement('div');
+    head.className = 't';
+    head.textContent = title;
+
+    const x = document.createElement('button');
+    x.className = 'x';
+    x.type = 'button';
+    x.title = 'Dismiss';
+    x.setAttribute('aria-label', 'Dismiss');
+    x.textContent = '×';
+    x.addEventListener('click', () => t.remove());
+
+    top.appendChild(head);
+    top.appendChild(x);
+
+    const b = document.createElement('div');
+    b.className = 'b';
+    b.textContent = body;
+
+    t.appendChild(top);
+    t.appendChild(b);
+
+    wrap.appendChild(t);
+
+    // auto-dismiss
+    setTimeout(() => { try { t.remove(); } catch {} }, 12000);
+  }
+
+  function beep() {
+    // Tiny non-annoying beep using WebAudio (works on HTTP too).
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.value = 0.03;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      setTimeout(() => { osc.stop(); ctx.close(); }, 120);
+    } catch { /* ignore */ }
+  }
+
+  function maybeNotifyNewDeliveries(events) {
+    // One alert per delivery_number per browser.
+    if (!getNotifEnabled()) return;
+
+    const supported = ('Notification' in window);
+    const perm = supported ? Notification.permission : 'n/a';
+
+    const seen = getSeenDeliveries();
+
+    // Baseline: only alert for events after this page load/refresh.
+    const sessionStart = new Date(localStorage.getItem(NOTIF_SESSION_START_KEY) || new Date().toISOString());
+
+    // Consider deliveries seen in the last hour (matches dashboard focus)
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60*60000);
+
+    // Find newest unseen deliveries by rec_dt.
+    const candidates = [];
+    for (const e of (events || [])) {
+      const dn = String(e.delivery_number || '').trim();
+      if (!dn) continue;
+      if (seen[dn]) continue;
+
+      const dt = new Date(String(e.rec_dt || '').replace(' ', 'T'));
+      if (Number.isNaN(dt.getTime())) continue;
+      if (dt < oneHourAgo) continue;
+      if (dt <= sessionStart) continue;
+
+      candidates.push({
+        delivery_number: dn,
+        item_nbr: String(e.item_nbr || '').trim(),
+        item_desc: String(e.item_desc || '').trim(),
+        location_id: String(e.location_id || '').trim(),
+        shift_label: String(e.shift_label || '').trim(),
+        rec_dt: String(e.rec_dt || '').trim(),
+        dt,
+      });
+    }
+
+    candidates.sort((a, b) => b.dt - a.dt);
+
+    // Avoid spamming: at most 3 alerts per refresh.
+    for (const c of candidates.slice(0, 3)) {
+      const title = 'Manual Receiving Required';
+      const bodyParts = [
+        `Delivery: ${c.delivery_number}`,
+        c.shift_label ? `Shift: ${c.shift_label}` : null,
+        c.location_id ? `Loc: ${c.location_id}` : null,
+        c.item_nbr ? `Item: ${c.item_nbr}` : null,
+        c.item_desc ? `Desc: ${String(c.item_desc).slice(0, 60)}` : null,
+        c.rec_dt ? `Time: ${c.rec_dt}` : null,
+      ].filter(Boolean);
+      const body = bodyParts.join(' • ');
+
+      // Always show in-page toast.
+      showToast(title, body);
+      beep();
+
+      // Try OS notification if allowed.
+      if (supported && perm === 'granted') {
+        try { new Notification(title, { body }); } catch { /* ignore */ }
+      }
+
+      markSeenDelivery(c.delivery_number);
+    }
+  }
 
   function minutesBetween(now, dtStr) {
     const iso = dtStr.replace(' ', 'T');
@@ -187,7 +409,7 @@
     const res = await fetch('/api/status', { cache: 'no-store' });
     const s = await res.json();
 
-    document.getElementById('title').textContent = `Manual Receiving ATC - ${s.facility_id || '–'}`;
+    document.getElementById('title').textContent = `Manual Receiving - ${s.facility_id || '–'}`;
     document.getElementById('pillFacility').textContent = `Facility: ${s.facility_id || '–'}`;
 
     const pillState = document.getElementById('pillState');
@@ -221,6 +443,9 @@
     const data = await res.json();
     const events = data.events || [];
 
+    // Browser notifications for all users who have the dashboard open.
+    maybeNotifyNewDeliveries(events);
+
     const now = new Date();
     const oneHourAgo = new Date(now.getTime() - 60*60000);
 
@@ -248,6 +473,7 @@
     document.getElementById('kpiTopVendor').textContent = topVendor || '–';
 
     // Top 5 locations (last hour)
+    const itemDescCountsByItem = new Map(); // item_nbr -> Map(desc -> count)
     const byLoc = new Map();
     for (const e of lastHour) {
       const loc = String(e.location_id || '').trim();
@@ -266,6 +492,14 @@
       const item = String(e.item_nbr || '').trim();
       if (item) bucket.itemCounts.set(item, (bucket.itemCounts.get(item) || 0) + 1);
 
+      // Track most common description per item
+      const desc = String(e.item_desc || '').trim();
+      if (item && desc) {
+        if (!itemDescCountsByItem.has(item)) itemDescCountsByItem.set(item, new Map());
+        const m = itemDescCountsByItem.get(item);
+        m.set(desc, (m.get(desc) || 0) + 1);
+      }
+
       const v = String(e.vendor_name || '').trim();
       if (v) bucket.vendorCounts.set(v, (bucket.vendorCounts.get(v) || 0) + 1);
     }
@@ -277,6 +511,13 @@
         if (c > bestC) { bestK = k; bestC = c; }
       }
       return bestK || '–';
+    }
+
+    function topDescForItem(item) {
+      const m = itemDescCountsByItem.get(item);
+      if (!m) return '';
+      const d = topKey(m);
+      return d === '–' ? '' : d;
     }
 
     const topLocMeta = document.getElementById('topLocMeta');
@@ -307,7 +548,10 @@
           `#${idx + 1}`,
           r.loc,
           String(r.count),
-          r.topItem,
+          (() => {
+            const d = topDescForItem(r.topItem);
+            return d ? `${r.topItem} — ${String(d).slice(0, 50)}` : r.topItem;
+          })(),
           r.topVendor,
         ];
         for (const c of cells) {
@@ -329,12 +573,16 @@
       if (!byItem.has(item)) {
         byItem.set(item, {
           count: 0,
+          descCounts: new Map(),
           vendorCounts: new Map(),
           locationCounts: new Map(),
         });
       }
       const bucket = byItem.get(item);
       bucket.count += 1;
+
+      const d = String(e.item_desc || '').trim();
+      if (d) bucket.descCounts.set(d, (bucket.descCounts.get(d) || 0) + 1);
 
       const v = String(e.vendor_name || '').trim();
       if (v) bucket.vendorCounts.set(v, (bucket.vendorCounts.get(v) || 0) + 1);
@@ -352,33 +600,43 @@
       return bestK || '–';
     }
 
+    function topDescForItem(item) {
+      const m = itemDescCountsByItem.get(item);
+      if (!m) return '';
+      const d = topKey(m);
+      return d === '–' ? '' : d;
+    }
+
     const ranked = Array.from(byItem.entries())
       .map(([item, v]) => ({
         item,
         count: v.count,
+        topDesc: topKey(v.descCounts),
         topVendor: topKey(v.vendorCounts),
         topLocation: topKey(v.locationCounts),
       }))
       .sort((a, b) => b.count - a.count)
-      .slice(0, 3);
+      .slice(0, 5);
 
     const top3Body = document.getElementById('top3Body');
     const top3Meta = document.getElementById('top3Meta');
 
     if (lastHour.length === 0) {
       top3Meta.textContent = 'No events in last hour';
-      top3Body.innerHTML = '<tr><td colspan="5" class="label">No items to rank (last hour has 0 events).</td></tr>';
+      top3Body.innerHTML = '<tr><td colspan="6" class="label">No items to rank (last hour has 0 events).</td></tr>';
     } else if (ranked.length === 0) {
       top3Meta.textContent = 'No item numbers available';
-      top3Body.innerHTML = '<tr><td colspan="5" class="label">Events exist, but item_nbr was blank.</td></tr>';
+      top3Body.innerHTML = '<tr><td colspan="6" class="label">Events exist, but item_nbr was blank.</td></tr>';
     } else {
       top3Meta.textContent = `Based on ${lastHour.length} event(s)`;
       top3Body.innerHTML = '';
       ranked.forEach((r, idx) => {
         const tr = document.createElement('tr');
+        const desc = (r.topDesc && r.topDesc !== '–') ? String(r.topDesc) : '';
         const cells = [
           `#${idx + 1}`,
           r.item,
+          desc ? (desc.slice(0, 60) + (desc.length > 60 ? '…' : '')) : '–',
           String(r.count),
           r.topVendor,
           r.topLocation,
@@ -406,7 +664,7 @@
       const tr = document.createElement('tr');
       tr.className = rowClass(age);
 
-      const cols = ['rec_dt','location_id','container_id','item_nbr','vendor_name','delivery_number','shift_label'];
+      const cols = ['rec_dt','location_id','container_id','item_nbr','item_desc','vendor_name','delivery_number','shift_label'];
       for (const c of cols) {
         const td = document.createElement('td');
         td.textContent = String(e[c] ?? '');
@@ -420,7 +678,7 @@
 
   function exportCsv() {
     const rows = [];
-    rows.push(['Rec Date','Location','Container','Item','Vendor','Delivery','Shift']);
+    rows.push(['Rec Date','Location','Container','Item','Item Desc','Vendor','Delivery','Shift']);
 
     const tbody = document.getElementById('tbody');
     for (const tr of tbody.querySelectorAll('tr')) {
@@ -434,7 +692,7 @@
     const a = document.createElement('a');
     const today = new Date().toISOString().slice(0, 10);
     a.href = URL.createObjectURL(blob);
-    a.download = 'ATC_Events_' + today + '.csv';
+    a.download = 'ManualReceiving_Events_' + today + '.csv';
     a.click();
     URL.revokeObjectURL(a.href);
   }
@@ -447,6 +705,24 @@
       console.log(e);
     }
   }
+
+  // Notification baseline: treat page load/refresh as "time 0".
+  localStorage.setItem(NOTIF_SESSION_START_KEY, new Date().toISOString());
+
+  // Safety: surface JS errors instead of silently failing.
+  window.addEventListener('error', (ev) => {
+    try {
+      const msg = ev?.message ? String(ev.message) : 'Unknown error';
+      showToast('Dashboard error', msg);
+    } catch {}
+  });
+
+  // Notifications UI (defensive: elements may be missing if an older HTML file is served)
+  const btnEn = document.getElementById('btnEnableNotif');
+  const btnDis = document.getElementById('btnDisableNotif');
+  if (btnEn) btnEn.addEventListener('click', enableNotifications);
+  if (btnDis) btnDis.addEventListener('click', disableNotifications);
+  try { updateNotifUI(); } catch {}
 
   // Main live dashboard loop
   tick();

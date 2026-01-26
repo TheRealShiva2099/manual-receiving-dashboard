@@ -20,12 +20,14 @@ def main() -> None:
         items=[
             DeliveryItemLine(
                 item_nbr="680855174",
+                item_desc="EXAMPLE ITEM DESCRIPTION ONE",
                 vendor_name="ACME VENDOR INC",
                 cases=96.0,
                 locations=["301", "317"],
             ),
             DeliveryItemLine(
                 item_nbr="666234981",
+                item_desc="EXAMPLE ITEM DESCRIPTION TWO",
                 vendor_name="OTHER VENDOR LLC",
                 cases=32.0,
                 locations=["CP08FL_C-1"],

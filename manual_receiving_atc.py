@@ -59,6 +59,7 @@ class AtcEvent:
     location_id: str
     container_id: str
     item_nbr: str
+    item_desc: str
     vendor_name: str
     delivery_number: str
     shift_label: str
@@ -103,7 +104,7 @@ def load_state() -> dict[str, Any]:
 
 
 def save_state(seen_event_ids: list[str]) -> None:
-    # Prune so the file doesn’t grow forever.
+    # Prune so the file doesn't grow forever.
     pruned = seen_event_ids[-5000:]
     payload = {"last_check": _now_iso(), "seen_event_ids": pruned}
     STATE_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -133,7 +134,7 @@ def _bq_query_sql(config: dict[str, Any]) -> str:
 
     Design priorities:
     - FAST enough to run repeatedly (not 80GB / 5 minutes… gross)
-    - Use your site’s manual receiving definition + overflow locations
+    - Use your site's manual receiving definition + overflow locations
     - Return event-level rows for alerting
 
     Performance tricks we apply:
@@ -152,22 +153,35 @@ def _bq_query_sql(config: dict[str, Any]) -> str:
     # Overflow/exempt locations should not appear in the dashboard/alerts.
     overflow_filter = ""
     if overflow_locations:
-        quoted = ", ".join([f"'{x}'" for x in overflow_locations])
-        overflow_filter = f"\n      AND r.LOCATION_ID NOT IN ({quoted})"
+        # Compare case-insensitively; some sources emit location_id as lowercase.
+        quoted = ", ".join([f"'{str(x).strip().upper()}'" for x in overflow_locations])
+        overflow_filter = f"\n      AND UPPER(TRIM(CAST(r.LOCATION_ID AS STRING))) NOT IN ({quoted})"
 
+    vendor_cte = ""
     vendor_select = "'' AS vendor_name"
     vendor_joins = ""
     if include_vendor:
-        vendor_select = "CAST(o.VNDR_NAME AS STRING) AS vendor_name"
+        # Aggregate vendor to ONE row per delivery to prevent join fan-out.
+        vendor_cte = """
+  , vendor_single AS (
+    SELECT
+      d.DELIVERY_NUMBER,
+      ANY_VALUE(o.VNDR_NAME) AS VNDR_NAME
+    FROM `wmt-edw-prod.US_SUPPLY_CHAIN_SCT_NONCAT_VM.DELIVERY_DOC` d
+    LEFT JOIN `wmt-cp-prod.TRANS.ICC_ORD_SCH` o
+      ON d.OMS_PO_NBR = CAST(o.OMS_PO_NBR AS STRING)
+    WHERE d.DELIVERY_NUMBER IN (SELECT DELIVERY_NUMBER FROM c_filtered)
+    GROUP BY d.DELIVERY_NUMBER
+  )
+""".rstrip()
+        vendor_select = "CAST(v.VNDR_NAME AS STRING) AS vendor_name"
         vendor_joins = """
-LEFT JOIN `wmt-edw-prod.US_SUPPLY_CHAIN_SCT_NONCAT_VM.DELIVERY_DOC` d
-  ON c.DELIVERY_NUMBER = d.DELIVERY_NUMBER
-LEFT JOIN `wmt-cp-prod.TRANS.ICC_ORD_SCH` o
-  ON d.OMS_PO_NBR = CAST(o.OMS_PO_NBR AS STRING)
+LEFT JOIN vendor_single v
+  ON c.DELIVERY_NUMBER = v.DELIVERY_NUMBER
 """.rstrip()
 
     # NOTE: We assume c.CONTAINER_CREATE_TS and r.ENTITY_OPERATION_TS are partition-friendly.
-    # This is “Westly-style” output columns, but optimized:
+    # This is "Westly-style" output columns, but optimized:
     # - filter by window before join
     # - pick latest receiving row per container to avoid duplicates
     return f"""
@@ -188,22 +202,26 @@ WITH
     QUALIFY ROW_NUMBER() OVER (PARTITION BY r.CONTAINER_ID ORDER BY r.ENTITY_OPERATION_TS DESC) = 1
   ),
   c_filtered AS (
-    -- 1 row per container, but only for containers that appear in r_filtered.
+    -- Container -> item mapping. IMPORTANT: keep item granularity.
+    -- Using ANY_VALUE(item_nbr) can mis-attribute cases when a container has multiple items.
     SELECT
       c.CONTAINER_ID,
-      ANY_VALUE(c.ITEM_NBR) AS ITEM_NBR,
+      c.ITEM_NBR AS ITEM_NBR,
+      ANY_VALUE(c.ITEM_DESC) AS ITEM_DESC,
       ANY_VALUE(c.DELIVERY_NUMBER) AS DELIVERY_NUMBER
     FROM `wmt-edw-prod.US_SUPPLY_CHAIN_SCT_NONCAT_VM.CONTAINER_ITEM_OPERATIONS` c
     WHERE c.FACILITY = '{facility_id}'
       AND c.CONTAINER_ID IN (SELECT CONTAINER_ID FROM r_filtered)
-    GROUP BY c.CONTAINER_ID
+    GROUP BY c.CONTAINER_ID, c.ITEM_NBR
   )
+{vendor_cte}
 
 SELECT
   CAST(DATETIME(r.ENTITY_OPERATION_TS, '{tz}') AS STRING) AS rec_dt,
   CAST(r.LOCATION_ID AS STRING) AS location_id,
   CAST(c.CONTAINER_ID AS STRING) AS container_id,
   CAST(c.ITEM_NBR AS STRING) AS item_nbr,
+  CAST(c.ITEM_DESC AS STRING) AS item_desc,
   {vendor_select},
   CAST(c.DELIVERY_NUMBER AS STRING) AS delivery_number,
 
@@ -244,7 +262,7 @@ def _resolve_bq_exe(config: dict[str, Any]) -> str:
     # 1) Config override
     bq_path = str(config.get("bigquery", {}).get("bq_path", "")).strip()
     if bq_path:
-        # If configured, always use it. Don’t “helpfully” fall back to some other bq.
+        # If configured, always use it. Don't "helpfully" fall back to some other bq.
         p = Path(bq_path)
         if not p.exists():
             raise FileNotFoundError(
@@ -376,6 +394,7 @@ def _parse_events_csv(csv_text: str) -> list[AtcEvent]:
             location_id=get("location_id"),
             container_id=get("container_id"),
             item_nbr=get("item_nbr"),
+            item_desc=get("item_desc"),
             vendor_name=get("vendor_name"),
             delivery_number=get("delivery_number"),
             shift_label=get("shift_label"),
@@ -523,6 +542,7 @@ def upsert_events_to_log(events: list[AtcEvent], config: dict[str, Any]) -> None
                     "location_id": e.location_id,
                     "container_id": e.container_id,
                     "item_nbr": e.item_nbr,
+                    "item_desc": e.item_desc,
                     "vendor_name": e.vendor_name,
                     "delivery_number": e.delivery_number,
                     "shift_label": e.shift_label,
@@ -536,6 +556,7 @@ def upsert_events_to_log(events: list[AtcEvent], config: dict[str, Any]) -> None
                 "location_id": e.location_id,
                 "container_id": e.container_id,
                 "item_nbr": e.item_nbr,
+                "item_desc": e.item_desc,
                 "vendor_name": e.vendor_name,
                 "delivery_number": e.delivery_number,
                 "shift_label": e.shift_label,
@@ -554,7 +575,7 @@ def _write_dashboard_html(config: dict[str, Any]) -> None:
     For UI development we just serve the template file (which pulls live data from /api/events + /api/status).
     Keeping HTML out of Python = less pain.
 
-    (Westly embedded HTML, but that’s optional. DRY > nostalgia.)
+    (Westly embedded HTML, but that's optional. DRY > nostalgia.)
     """
 
     # Always ensure a dashboard exists.
@@ -614,7 +635,7 @@ def _write_roster_html(config: dict[str, Any]) -> None:
 
 def _start_flask_server_subprocess() -> None:
     # Start the server as a child process.
-    # This matches the “two python processes” described in the docs.
+    # This matches the "two python processes" described in the docs.
     python_exe = sys.executable
     subprocess.Popen(
         [python_exe, str(BASE_DIR / "atc_data_server.py")],
@@ -643,7 +664,7 @@ def run_once(config: dict[str, Any]) -> tuple[list[AtcEvent], list[AtcEvent]]:
 
     new_events = [e for e in recent if e.event_id() not in seen]
 
-    # Update state to reflect everything we’ve seen in the last 24h query.
+    # Update state to reflect everything we've seen in the last 24h query.
     # This prevents dupes even if the lookback window changes.
     updated_seen = list(seen.union({e.event_id() for e in events}))
     save_state(updated_seen)
@@ -750,6 +771,7 @@ def main() -> None:
                         "location_id": e.location_id,
                         "container_id": e.container_id,
                         "item_nbr": e.item_nbr,
+                        "item_desc": e.item_desc,
                         "vendor_name": e.vendor_name,
                         "delivery_number": e.delivery_number,
                         "shift_label": e.shift_label,

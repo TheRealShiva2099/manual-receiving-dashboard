@@ -40,7 +40,7 @@
     "enabled": false,
     "duration_seconds": 600,
     "sound_enabled": true,
-    "app_name": "Manual Receiving ATC"
+    "app_name": "Manual Receiving"
   },
   "email_notifications": {
     "enabled": false,
@@ -54,5 +54,16 @@
     },
     "recipients": ["shiva.ilayanambi@walmart.com"],
     "max_emails_per_hour": 20
+  },
+  "teams_notifications": {
+    "enabled": true,
+    "preview_outbox": true,
+    "webhooks_by_shift": {
+      "Shift A1": "https://walmart.webhook.office.com/webhookb2/75f4010d-3624-45c9-99c8-cf878ce83c56@3cbcc3d3-094d-4006-9849-0d11d61f484d/IncomingWebhook/cdce5f77fb054f72baeb939e07ba3c93/b66a9579-b0eb-4989-a821-abc1dfa25298/V2BqbfRPSQVg8V1_11hOXoSAayDBbadoa6XEQd70BZ_6g1",
+      "Shift A2": "https://walmart.webhook.office.com/webhookb2/75f4010d-3624-45c9-99c8-cf878ce83c56@3cbcc3d3-094d-4006-9849-0d11d61f484d/IncomingWebhook/86a031dec588474b9bb5e1eab250ee2e/b66a9579-b0eb-4989-a821-abc1dfa25298/V2BsajCFD397ltHVXskaX3cvbMRw3j19IqtYwKeat_pCc1",
+      "Shift B1": "https://walmart.webhook.office.com/webhookb2/75f4010d-3624-45c9-99c8-cf878ce83c56@3cbcc3d3-094d-4006-9849-0d11d61f484d/IncomingWebhook/e41e508eed7e49d9bb04742c10948249/b66a9579-b0eb-4989-a821-abc1dfa25298/V2n7eZNskvZqg-U_5HhHMtDKv0nfLVvzt50ObYiO_Px2M1",
+      "Off Shift": ""
+    },
+    "max_messages_per_hour": 30
   }
 }

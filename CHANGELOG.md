@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.0.0
+- Site-hosted web dashboard support (LAN host mode) + hosting docs
+- Teams shift-channel notifications via Incoming Webhooks (A1/A2/B1)
+- Browser alerts with clean in-page toasts, per-session baseline, and sound
+- Item descriptions (item_desc) added to events, dashboard tables, analytics, and notifications
+- Overflow location filtering hardened (case-insensitive) at query + API layers
+- UI density improvements (less whitespace, key tables side-by-side)
+
 ## v2.0.0
 - Visualizations page (/viz) with ops-focused charts and time-range toggles
 - Roster page (/roster) with drag/drop inbound shift assignments

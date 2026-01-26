@@ -227,10 +227,32 @@ def create_app(base_dir: Path) -> Flask:
     def api_events() -> Response:
         if not events_log_path.exists():
             return jsonify({"events": []})
+
         try:
             payload: dict[str, Any] = json.loads(events_log_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             return jsonify({"events": []})
+
+        # Always filter overflow/exempt locations at the API layer too.
+        # This prevents old cached events from showing up after config changes.
+        try:
+            cfg = _load_config(base_dir)
+            overflow = {str(x).strip().upper() for x in (cfg.get("monitoring", {}).get("overflow_locations", []) or [])}
+        except Exception:
+            overflow = set()
+
+        events = payload.get("events", []) if isinstance(payload, dict) else []
+        if overflow and isinstance(events, list):
+            filtered = []
+            for e in events:
+                if not isinstance(e, dict):
+                    continue
+                loc = str(e.get("location_id", "")).strip()
+                if loc and loc.strip().upper() in overflow:
+                    continue
+                filtered.append(e)
+            payload["events"] = filtered
+
         return jsonify(payload)
 
     @app.get("/api/status")
@@ -334,19 +356,21 @@ WITH
       AND r.CONTAINER_ID <> r.MESSAGE_ID
       AND r.ENTITY_OPERATION_TS >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {days} DAY)
     QUALIFY ROW_NUMBER() OVER (
-      PARTITION BY r.CONTAINER_ID
+      PARTITION BY r.CONTAINER_ID, r.ITEM_NBR
       ORDER BY r.ENTITY_OPERATION_TS DESC
     ) = 1
   ),
   c_filtered AS (
     SELECT
       c.CONTAINER_ID,
+      CAST(c.ITEM_NBR AS STRING) AS item_nbr,
+      ANY_VALUE(CAST(c.ITEM_DESC AS STRING)) AS item_desc,
       ANY_VALUE(c.DELIVERY_NUMBER) AS DELIVERY_NUMBER
     FROM `wmt-edw-prod.US_SUPPLY_CHAIN_SCT_NONCAT_VM.CONTAINER_ITEM_OPERATIONS` c
     WHERE c.FACILITY = '{facility_id}'
       AND c.CONTAINER_CREATE_TS >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {days} DAY)
       AND c.CONTAINER_ID IN (SELECT CONTAINER_ID FROM r_latest)
-    GROUP BY c.CONTAINER_ID
+    GROUP BY c.CONTAINER_ID, c.ITEM_NBR
   ),
   vendor_map AS (
     SELECT
@@ -362,10 +386,12 @@ WITH
 SELECT
   COALESCE(v.vendor_name, '') AS vendor_name,
   r.item_nbr AS item_nbr,
+  ANY_VALUE(c.item_desc) AS item_desc,
   SUM(r.case_qty) AS total_cases
 FROM r_latest r
 JOIN c_filtered c
   ON r.CONTAINER_ID = c.CONTAINER_ID
+ AND r.item_nbr = c.item_nbr
 LEFT JOIN vendor_map v
   ON c.DELIVERY_NUMBER = v.DELIVERY_NUMBER
 GROUP BY vendor_name, item_nbr

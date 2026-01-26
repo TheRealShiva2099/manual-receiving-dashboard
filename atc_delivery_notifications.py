@@ -9,16 +9,19 @@ from typing import Any
 
 from atc_email_state_store import (
     EmailState,
+    can_send,
     can_send_email,
     has_emailed_delivery,
     load_email_state,
     mark_delivery_emailed,
     mark_email_sent,
+    mark_sent,
     prune_email_state,
     save_email_state,
 )
 from atc_email_template import DeliveryEmailSummary, DeliveryItemLine, build_html, build_subject
 from atc_roster_store import load_roster
+from atc_teams_webhook import TeamsWebhookConfig, post_teams_message
 
 
 def _safe_float(x: Any) -> float:
@@ -71,6 +74,7 @@ def _build_delivery_summary(
 
         if item not in by_item:
             by_item[item] = {
+                "item_desc": _safe_str(e.get("item_desc")),
                 "vendor_name": _safe_str(e.get("vendor_name")),
                 "cases": 0.0,
                 "locs": set(),
@@ -86,6 +90,7 @@ def _build_delivery_summary(
         item_lines.append(
             DeliveryItemLine(
                 item_nbr=item_nbr,
+                item_desc=str(meta.get("item_desc") or ""),
                 vendor_name=str(meta.get("vendor_name") or ""),
                 cases=float(meta.get("cases") or 0.0),
                 locations=sorted(list(meta.get("locs") or [])),
@@ -123,10 +128,14 @@ def notify_new_deliveries(
     """
 
     email_cfg = config.get("email_notifications", {})
-    enabled = bool(email_cfg.get("enabled", False))
-    preview_outbox = bool(email_cfg.get("preview_outbox", True))
+    email_enabled = bool(email_cfg.get("enabled", False))
+    email_preview_outbox = bool(email_cfg.get("preview_outbox", True))
 
-    if not enabled and not preview_outbox:
+    teams_cfg = config.get("teams_notifications", {})
+    teams_enabled = bool(teams_cfg.get("enabled", False))
+    teams_preview_outbox = bool(teams_cfg.get("preview_outbox", True))
+
+    if not (email_enabled or email_preview_outbox or teams_enabled or teams_preview_outbox):
         return
 
     facility_id = str(config.get("monitoring", {}).get("facility_id", ""))
@@ -137,7 +146,8 @@ def notify_new_deliveries(
     state: EmailState = load_email_state(state_path)
     prune_email_state(state)
 
-    max_per_hour = int(email_cfg.get("max_emails_per_hour", 20))
+    max_email_per_hour = int(email_cfg.get("max_emails_per_hour", 20))
+    max_teams_per_hour = int(teams_cfg.get("max_messages_per_hour", 30))
 
     deliveries = _group_delivery_events(new_events)
     if not deliveries:
@@ -156,41 +166,96 @@ def notify_new_deliveries(
             events=evs,
         )
 
-        recipients = roster.inbound_recipients_for_shift(summary.shift_label)
-        if not recipients:
-            # No recipients for that shift -> do nothing (but don’t mark emailed).
+        # Decide what we will send.
+        webhook = str((teams_cfg.get("webhooks_by_shift", {}) or {}).get(summary.shift_label, "")).strip()
+        will_send_teams = (summary.shift_label != "Off Shift") and bool(webhook) and teams_enabled
+        will_preview_teams = (summary.shift_label != "Off Shift") and bool(webhook) and teams_preview_outbox
+
+        recipients: list[str] = []
+        if email_enabled:
+            recipients = roster.inbound_recipients_for_shift(summary.shift_label)
+        will_send_email = email_enabled and bool(recipients)
+        will_preview_email = email_preview_outbox and email_enabled and bool(recipients)
+
+        # If nothing is configured for this shift (like Off Shift), skip without marking delivery.
+        if not (will_send_teams or will_preview_teams or will_send_email or will_preview_email):
             continue
 
-        if not can_send_email(state, max_per_hour=max_per_hour):
-            # Rate limited: stop processing to avoid spam.
+        # Rate limiting (separate buckets per channel)
+        if will_send_email and not can_send(state, channel="email", max_per_hour=max_email_per_hour):
+            break
+        if will_send_teams and not can_send(state, channel="teams", max_per_hour=max_teams_per_hour):
             break
 
         subject = build_subject(summary)
         html = build_html(summary)
 
-        stamp = time.strftime("%Y%m%d_%H%M%S")
-        safe_delivery = "".join(ch for ch in delivery_number if ch.isalnum() or ch in ("-", "_"))
-        out_path = out_dir / f"delivery_{safe_delivery}_{stamp}.html"
-        out_path.write_text(html, encoding="utf-8")
+        # TEAMS (Incoming Webhook) - posts to a channel per shift
+        if will_send_teams:
+            overflow = {
+                str(x).strip().upper()
+                for x in (config.get("monitoring", {}).get("overflow_locations", []) or [])
+            }
+            locs = [
+                l for l in (summary.locations or []) if str(l).strip() and str(l).strip().upper() not in overflow
+            ]
 
-        # Save metadata sidecar
-        meta_path = out_dir / f"delivery_{safe_delivery}_{stamp}.json"
-        meta_path.write_text(
-            json.dumps(
-                {
-                    "delivery_number": delivery_number,
-                    "shift_label": summary.shift_label,
-                    "recipients": recipients,
-                    "subject": subject,
-                    "summary": asdict(summary),
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
+            lines = [
+                f"Facility: {facility_id}",
+                f"Shift: {summary.shift_label}",
+                f"First detected: {summary.first_detected_local}",
+                f"Delivery: {summary.delivery_number}",
+                f"Locations: {', '.join(locs[:5]) if locs else '-'}",
+                f"Items: {len(summary.items)}",
+            ]
+            # Include top 5 items (no cases/locations in Teams notifications)
+            for it in summary.items[:5]:
+                desc = (it.item_desc or "").strip()
+                desc = (desc[:60] + "…") if len(desc) > 60 else desc
+                if desc:
+                    lines.append(f"Item {it.item_nbr}: {desc}")
+                else:
+                    lines.append(f"Item {it.item_nbr}")
 
-        # Mark as "sent" (outbox counts as sent for dedupe/rate limiting)
-        mark_email_sent(state)
-        mark_delivery_emailed(state, delivery_number)
+            try:
+                post_teams_message(
+                    cfg=TeamsWebhookConfig(webhook_url=webhook),
+                    title=subject,
+                    lines=lines,
+                )
+                mark_sent(state, channel="teams")
+            except Exception:
+                # Don't crash the whole ATC loop on Teams failures.
+                pass
+
+        # Outbox audit (HTML + metadata). Write only if this shift is configured for a notification.
+        if will_preview_teams or will_preview_email:
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            safe_delivery = "".join(ch for ch in delivery_number if ch.isalnum() or ch in ("-", "_"))
+            out_path = out_dir / f"delivery_{safe_delivery}_{stamp}.html"
+            out_path.write_text(html, encoding="utf-8")
+
+            meta_path = out_dir / f"delivery_{safe_delivery}_{stamp}.json"
+            meta_path.write_text(
+                json.dumps(
+                    {
+                        "delivery_number": delivery_number,
+                        "shift_label": summary.shift_label,
+                        "recipients": recipients,
+                        "subject": subject,
+                        "summary": asdict(summary),
+                        "teams_webhook_configured": bool(webhook),
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+        if will_send_email:
+            mark_email_sent(state)
+
+        # Dedupe is delivery-based per shift configuration: only mark if we actually notified/previewed.
+        if will_send_teams or will_send_email or will_preview_teams or will_preview_email:
+            mark_delivery_emailed(state, delivery_number)
 
     save_email_state(state_path, state)
