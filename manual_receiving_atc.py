@@ -48,8 +48,8 @@ ANALYTICS_PATH = BASE_DIR / "atc_analytics.html"
 ANALYTICS_TEMPLATE_PATH = BASE_DIR / "analytics_template.html"
 VIZ_PATH = BASE_DIR / "atc_viz.html"
 VIZ_TEMPLATE_PATH = BASE_DIR / "viz_template.html"
-ROSTER_PATH = BASE_DIR / "atc_roster.html"
-ROSTER_TEMPLATE_PATH = BASE_DIR / "roster_template.html"
+DELIVERIES_PATH = BASE_DIR / "atc_deliveries.html"
+DELIVERIES_TEMPLATE_PATH = BASE_DIR / "deliveries_template.html"
 LAST_QUERY_PATH = BASE_DIR / "last_atc_query.sql"
 
 
@@ -620,15 +620,18 @@ def _write_viz_html(config: dict[str, Any]) -> None:
     )
 
 
-def _write_roster_html(config: dict[str, Any]) -> None:
-    """Write the roster management page file (served at /roster)."""
+def _write_deliveries_html(config: dict[str, Any]) -> None:
+    """Write the deliveries page file (served at /deliveries)."""
 
-    if ROSTER_TEMPLATE_PATH.exists():
-        ROSTER_PATH.write_text(ROSTER_TEMPLATE_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+    if DELIVERIES_TEMPLATE_PATH.exists():
+        DELIVERIES_PATH.write_text(
+            DELIVERIES_TEMPLATE_PATH.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
         return
 
-    ROSTER_PATH.write_text(
-        "<html><body><h1>Roster template missing</h1></body></html>",
+    DELIVERIES_PATH.write_text(
+        "<html><body><h1>Deliveries template missing</h1></body></html>",
         encoding="utf-8",
     )
 
@@ -657,7 +660,16 @@ def run_once(config: dict[str, Any]) -> tuple[list[AtcEvent], list[AtcEvent]]:
     events = _parse_events_csv(csv_text)
 
     lookback_minutes = int(config.get("monitoring", {}).get("lookback_minutes", 15))
-    recent = _filter_recent(events, lookback_minutes=lookback_minutes)
+    query_window_minutes = int(config.get("monitoring", {}).get("query_window_minutes", lookback_minutes))
+
+    # IMPORTANT:
+    # BigQuery receiving rows can land late (rec_dt can be 20-60+ minutes behind
+    # when we first observe it). If we use a tiny lookback window, legitimate
+    # new deliveries will never be classified as "new_events".
+    #
+    # We already query a wider window; use it for new-event detection too.
+    effective_lookback = max(lookback_minutes, query_window_minutes)
+    recent = _filter_recent(events, lookback_minutes=effective_lookback)
 
     state = load_state()
     seen: set[str] = set(state.get("seen_event_ids", []))
@@ -694,7 +706,7 @@ def main() -> None:
     _write_dashboard_html(config)
     _write_analytics_html(config)
     _write_viz_html(config)
-    _write_roster_html(config)
+    _write_deliveries_html(config)
     # Ensure event log exists so the dashboard API always has something to serve.
     if not EVENTS_LOG_PATH.exists():
         save_events_log([])

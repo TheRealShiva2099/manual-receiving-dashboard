@@ -26,10 +26,12 @@ last_atc_query.sql
 atc_events_log.json
 atc_state.json
 atc_status.json
+atc_delivery_triage.json
 *_cache.json
 
 # Email/Graph local auth state
 msal_token_cache.bin
+graph_device_code_teams_chat.json
 atc_email_state.json
 outbox_emails/
 

@@ -17,11 +17,28 @@ from atc_email_state_store import (
     mark_email_sent,
     mark_sent,
     prune_email_state,
+    record_delivery_cases,
     save_email_state,
 )
 from atc_email_template import DeliveryEmailSummary, DeliveryItemLine, build_html, build_subject
 from atc_roster_store import load_roster
 from atc_teams_webhook import TeamsWebhookConfig, post_teams_message
+
+
+def _log_notification_error(*, base_dir: Path, msg: str) -> None:
+    """Best-effort append-only logging for notification issues.
+
+    We avoid crashing ATC because a channel is flaky, but we also refuse to fail
+    silently because that’s how you get 3.5 hours of confusion.
+    """
+
+    try:
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        with (base_dir / "atc_notifications.log").open("a", encoding="utf-8", errors="replace") as f:
+            f.write(f"[{stamp}] {msg}\n")
+    except Exception:
+        # Last resort: never crash the loop because logging failed.
+        pass
 
 
 def _safe_float(x: Any) -> float:
@@ -156,8 +173,19 @@ def notify_new_deliveries(
     out_dir = base_dir / "outbox_emails"
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    min_cases_per_delivery = float(teams_cfg.get("min_cases_per_delivery", 10) or 0)
+
     for delivery_number, evs in deliveries.items():
         if has_emailed_delivery(state, delivery_number):
+            continue
+
+        # Accumulate manual case counts per delivery, across polling cycles.
+        # This prevents Teams spam for one-off manual cases.
+        added_cases = sum(_safe_float(e.get("case_qty")) for e in evs)
+        total_cases = record_delivery_cases(state, delivery_number=delivery_number, added_cases=added_cases)
+
+        if min_cases_per_delivery > 0 and total_cases < min_cases_per_delivery:
+            # Not enough manual cases yet to warrant a notification.
             continue
 
         summary = _build_delivery_summary(
@@ -189,6 +217,8 @@ def notify_new_deliveries(
 
         subject = build_subject(summary)
         html = build_html(summary)
+
+        teams_sent_ok = False
 
         # TEAMS (Incoming Webhook) - posts to a channel per shift
         if will_send_teams:
@@ -223,10 +253,15 @@ def notify_new_deliveries(
                     title=subject,
                     lines=lines,
                 )
+                teams_sent_ok = True
                 mark_sent(state, channel="teams")
-            except Exception:
-                # Don't crash the whole ATC loop on Teams failures.
-                pass
+            except Exception as exc:
+                _log_notification_error(
+                    base_dir=base_dir,
+                    msg=(
+                        f"Teams webhook failed for delivery={delivery_number} shift={summary.shift_label}: {exc!r}"
+                    ),
+                )
 
         # Outbox audit (HTML + metadata). Write only if this shift is configured for a notification.
         if will_preview_teams or will_preview_email:
@@ -256,6 +291,6 @@ def notify_new_deliveries(
 
         # Dedupe is delivery-based per shift configuration: only mark if we actually notified/previewed.
         if will_send_teams or will_send_email or will_preview_teams or will_preview_email:
-            mark_delivery_emailed(state, delivery_number)
+            mark_delivery_emailed(state, delivery_number, shift_label=summary.shift_label)
 
     save_email_state(state_path, state)

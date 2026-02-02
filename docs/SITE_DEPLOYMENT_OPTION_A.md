@@ -120,7 +120,7 @@ Benefits:
 
 ## 8) Known limitations
 - No SSO: anyone on the network who can reach the host can view it.
-- Roster edits: anyone who can reach `/roster` can change routing (unless you add auth).
+- Deliveries history: anyone who can reach `/deliveries` can view notification history (read-only).
 - Scaling: one host.
 
 ---

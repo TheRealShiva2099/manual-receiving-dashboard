@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manual Receiving - Deliveries</title>
+  <style>
+    :root {
+      --wm-blue: #0071ce;
+      --wm-yellow: #ffc220;
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --text: #102a43;
+      --muted: #627d98;
+      --border: #e6e8ee;
+      --danger: #ffebee;
+      --warn: #fff8e1;
+      --ok: #e8f5e9;
+    }
+
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 0; background: var(--bg); color: var(--text); }
+    header { background: var(--wm-blue); color: white; padding: 16px 20px; }
+    header h1 { margin: 0; font-size: 18px; }
+    header .sub { margin-top: 4px; color: #e6f0ff; font-size: 12px; }
+
+    main { padding: 10px 12px; max-width: 1400px; margin: 0 auto; }
+    .card { background: var(--card); border-radius: 10px; padding: 10px; box-shadow: 0 1px 2px rgba(16,42,67,.08); border: 1px solid var(--border); }
+
+    nav { display:flex; gap:8px; flex-wrap: wrap; align-items:center; justify-content: space-between; }
+    a.btn, button { background: var(--wm-blue); border: none; color: white; padding: 10px 12px; border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-block; }
+    a.btn.secondary, button.secondary { background: #334e68; }
+    a.btn:focus, button:focus, input:focus, select:focus { outline: 3px solid var(--wm-yellow); outline-offset: 2px; }
+
+    .controls { display:flex; gap:10px; flex-wrap: wrap; align-items: end; }
+    .field { display:flex; flex-direction: column; gap: 6px; }
+    .label { color: var(--muted); font-size: 12px; }
+    input, select { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); min-width: 240px; }
+
+    table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(16,42,67,.08); border: 1px solid var(--border); }
+    th, td { padding: 8px; border-bottom: 1px solid var(--border); font-size: 12px; text-align: left; vertical-align: top; }
+    th { background: #f0f4f8; position: sticky; top: 0; z-index: 1; }
+
+    .pill { display:inline-flex; align-items:center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: #fff; font-size: 12px; }
+    .pill.ok { background: var(--ok); }
+    .pill.warn { background: var(--warn); }
+    .pill.bad { background: var(--danger); }
+
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    .muted { color: var(--muted); }
+
+    details { border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+    summary { cursor: pointer; padding: 10px 12px; font-weight: 800; list-style: none; }
+    summary::-webkit-details-marker { display:none; }
+    .detailsBody { padding: 10px 12px; border-top: 1px solid var(--border); }
+
+    .foot { margin-top: 10px; color: var(--muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Manual Receiving - Deliveries</h1>
+    <div class="sub">Notification history grouped by delivery (auto-refresh)</div>
+  </header>
+
+  <main>
+    <nav class="card" aria-label="Navigation">
+      <div style="display:flex; gap:8px; flex-wrap: wrap;">
+        <a class="btn" href="/" aria-current="page">Deliveries</a>
+        <a class="btn" href="/raw">Raw Data</a>
+        <a class="btn" href="/viz">Visualizations</a>
+        <a class="btn" href="/analytics">Analytics (QE)</a>
+      </div>
+      <div class="label">Switch pages</div>
+    </nav>
+
+    <div class="card" style="margin-top: 10px;">
+      <div class="controls">
+        <div class="field">
+          <div class="label">Search (delivery / item / desc / location)</div>
+          <input id="q" type="text" placeholder="e.g. 43736548 or 1434163 or EOF" />
+        </div>
+        <div class="field">
+          <div class="label">Show</div>
+          <select id="mode">
+            <option value="notified" selected>Notified deliveries only</option>
+            <option value="all">All deliveries in event log</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <div class="label">View</div>
+          <select id="view">
+            <option value="unchecked" selected>Unchecked (Floor)</option>
+            <option value="qa">Escalated to QA (QA)</option>
+            <option value="all">All (read-only-ish)</option>
+          </select>
+        </div>
+        <div class="field">
+          <div class="label">Max deliveries</div>
+          <select id="limit">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+            <option value="250">250</option>
+          </select>
+        </div>
+        <div class="field">
+          <div class="label">&nbsp;</div>
+          <button id="refresh">Refresh</button>
+        </div>
+        <div class="field">
+          <div class="label">&nbsp;</div>
+          <span id="status" class="pill">Loading…</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 10px; overflow:auto;">
+      <table aria-label="Delivery notification history">
+        <thead id="thead">
+          <tr>
+            <th style="min-width: 140px;">Notified at</th>
+            <th style="min-width: 120px;">Shift</th>
+            <th style="min-width: 130px;">Delivery</th>
+            <th style="min-width: 140px;">Total cases</th>
+            <th style="min-width: 180px;">Locations</th>
+            <th style="min-width: 520px;">Items (item_nbr • desc • cases • locations)</th>
+
+            <th style="min-width: 110px;">Checked</th>
+            <th style="min-width: 180px;">Primary cause</th>
+            <th style="min-width: 160px;">Disposition</th>
+            <th style="min-width: 240px;">Notes</th>
+            <th style="min-width: 160px;">QA status (placeholder)</th>
+            <th style="min-width: 240px;">QA notes (placeholder)</th>
+            <th style="min-width: 120px;">Save</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+
+    <div class="foot">Tip: click an item group to expand. This page is based on the local event log + notification state.</div>
+  </main>
+
+  <script>
+    const els = {
+      q: document.getElementById('q'),
+      mode: document.getElementById('mode'),
+      view: document.getElementById('view'),
+      limit: document.getElementById('limit'),
+      refresh: document.getElementById('refresh'),
+      thead: document.getElementById('thead'),
+      rows: document.getElementById('rows'),
+      status: document.getElementById('status'),
+    };
+
+    function esc(s) {
+      return String(s ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    function pill(text, cls) {
+      return `<span class="pill ${cls || ''}">${esc(text)}</span>`;
+    }
+
+    function formatItems(items) {
+      if (!items || !items.length) return '<span class="muted">-</span>';
+      const top = items.slice(0, 8);
+      const more = items.length - top.length;
+
+      const lines = top.map(it => {
+        const locs = (it.locations || []).slice(0, 6);
+        const locText = locs.length ? locs.join(', ') : '-';
+        const desc = it.item_desc ? it.item_desc : '';
+        return `<div><span class="mono">${esc(it.item_nbr)}</span> • ${esc(desc)} • <b>${Number(it.cases || 0).toFixed(1)}</b> cases • <span class="muted">${esc(locText)}</span></div>`;
+      }).join('');
+
+      if (more <= 0) return lines;
+      return `<details><summary>${esc(top.length)} items shown • ${esc(more)} more</summary><div class="detailsBody">${lines}${items.slice(8).map(it => {
+          const locs = (it.locations || []).slice(0, 6);
+          const locText = locs.length ? locs.join(', ') : '-';
+          const desc = it.item_desc ? it.item_desc : '';
+          return `<div><span class="mono">${esc(it.item_nbr)}</span> • ${esc(desc)} • <b>${Number(it.cases || 0).toFixed(1)}</b> cases • <span class="muted">${esc(locText)}</span></div>`;
+        }).join('')}</div></details>`;
+    }
+
+    let triageOptions = null;
+
+    async function loadTriageOptions() {
+      if (triageOptions) return triageOptions;
+      const res = await fetch('/api/triage-options', { cache: 'no-store' });
+      triageOptions = await res.json();
+      if (!triageOptions || !triageOptions.ok) {
+        triageOptions = { ok: false, primary_causes: [], escalation_options: [], qa_status_options: [] };
+      }
+      return triageOptions;
+    }
+
+    function selectHtml(opts, value, placeholder) {
+      const v = String(value || '');
+      const options = [
+        `<option value="">${esc(placeholder || 'Select…')}</option>`,
+        ...(opts || []).map(o => {
+          const s = String(o);
+          const sel = s === v ? ' selected' : '';
+          return `<option value="${esc(s)}"${sel}>${esc(s)}</option>`;
+        })
+      ];
+      return `<select class="input">${options.join('')}</select>`;
+    }
+
+    function applyViewFilter(rows) {
+      const view = (els.view && els.view.value) ? els.view.value : 'unchecked';
+      if (view === 'unchecked') {
+        return rows.filter(r => !r.triage_checked);
+      }
+      if (view === 'qa') {
+        return rows.filter(r => String(r.triage_escalation || '') === 'Escalated to QA');
+      }
+      return rows;
+    }
+
+    function applySearch(rows) {
+      const q = els.q.value.trim().toLowerCase();
+      if (!q) return rows;
+      return rows.filter(r => {
+        const hay = [
+          r.delivery_number,
+          r.shift_label,
+          (r.locations || []).join(' '),
+          JSON.stringify(r.items || [])
+        ].join(' ').toLowerCase();
+        return hay.includes(q);
+      });
+    }
+
+    function render(payload) {
+      // Clean view-driven table (Floor vs QA vs All). Keeps scrolling sane.
+      const view = (els.view && els.view.value) ? els.view.value : 'unchecked';
+      const rows = applySearch(applyViewFilter(payload.rows || []));
+
+      const causes = (triageOptions && triageOptions.primary_causes) || [];
+      const escalations = (triageOptions && triageOptions.escalation_options) || [];
+      const qaStatuses = (triageOptions && triageOptions.qa_status_options) || [];
+
+      const baseHead = [
+        '<th style="min-width: 140px;">Notified at</th>',
+        '<th style="min-width: 120px;">Shift</th>',
+        '<th style="min-width: 130px;">Delivery</th>',
+        '<th style="min-width: 140px;">Total cases</th>',
+        '<th style="min-width: 180px;">Locations</th>',
+        '<th style="min-width: 520px;">Items (item_nbr • desc • cases • locations)</th>',
+      ];
+
+      let extraHead = [];
+      if (view === 'unchecked') {
+        extraHead = [
+          '<th style="min-width: 110px;">Checked</th>',
+          '<th style="min-width: 180px;">Primary cause</th>',
+          '<th style="min-width: 160px;">Disposition</th>',
+          '<th style="min-width: 240px;">Notes</th>',
+          '<th style="min-width: 120px;">Save</th>',
+        ];
+      } else if (view === 'qa') {
+        extraHead = [
+          '<th style="min-width: 90px;">Floor checked</th>',
+          '<th style="min-width: 180px;">Floor cause</th>',
+          '<th style="min-width: 180px;">Floor disposition</th>',
+          '<th style="min-width: 280px;">Floor notes</th>',
+          '<th style="min-width: 180px;">QA status</th>',
+          '<th style="min-width: 280px;">QA notes</th>',
+          '<th style="min-width: 120px;">Save</th>',
+        ];
+      } else {
+        // All = editable escape hatch
+        extraHead = [
+          '<th style="min-width: 110px;">Checked</th>',
+          '<th style="min-width: 180px;">Primary cause</th>',
+          '<th style="min-width: 160px;">Disposition</th>',
+          '<th style="min-width: 240px;">Notes</th>',
+          '<th style="min-width: 180px;">QA status</th>',
+          '<th style="min-width: 280px;">QA notes</th>',
+          '<th style="min-width: 120px;">Save</th>',
+        ];
+      }
+
+      if (els.thead) {
+        els.thead.innerHTML = `<tr>${baseHead.join('')}${extraHead.join('')}</tr>`;
+      }
+
+      els.rows.innerHTML = rows.map(r => {
+        const notified = r.notified_at_local || '-';
+        const sh = r.shift_label || '-';
+        const del = r.delivery_number || '-';
+        const total = Number(r.total_cases || 0).toFixed(1);
+        const locs = (r.locations || []).slice(0, 10);
+        const locText = locs.length ? locs.join(', ') : '-';
+
+        const checked = !!r.triage_checked;
+        const primary = r.triage_primary_cause || '';
+        const escalation = r.triage_escalation || '';
+        const note = r.triage_note || '';
+        const qaStatusValue = r.qa_status || '';
+        const qaNoteValue = r.qa_note || '';
+
+        const baseCells = [
+          `<td>${esc(notified)}</td>`,
+          `<td>${esc(sh)}</td>`,
+          `<td class="mono">${esc(del)}</td>`,
+          `<td><b>${esc(total)}</b></td>`,
+          `<td>${esc(locText)}</td>`,
+          `<td>${formatItems(r.items || [])}</td>`,
+        ];
+
+        let extraCells = [];
+
+        if (view === 'unchecked') {
+          const checkedHtml = `<label class="muted" style="display:flex; gap:8px; align-items:center;">
+            <input type="checkbox" class="triage-checked" ${checked ? 'checked' : ''} />
+            <span>Checked</span>
+          </label>`;
+
+          const primaryHtml = selectHtml(causes, primary, 'Select…')
+            .replace('<select', '<select data-field="primary_cause" class="input triage-select"');
+
+          const escalationHtml = selectHtml(escalations, escalation, 'Select…')
+            .replace('<select', '<select data-field="escalation" class="input triage-select"');
+
+          const noteHtml = `<input class="input triage-note" type="text" maxlength="300" placeholder="Optional" value="${esc(note)}" />`;
+
+          const saveHtml = `
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              <button class="btn triage-save" type="button">Save (Floor)</button>
+              <span class="muted triage-msg" style="min-height: 14px;"></span>
+            </div>
+          `;
+
+          extraCells = [
+            `<td>${checkedHtml}</td>`,
+            `<td>${primaryHtml}</td>`,
+            `<td>${escalationHtml}</td>`,
+            `<td>${noteHtml}</td>`,
+            `<td>${saveHtml}</td>`,
+          ];
+        } else if (view === 'qa') {
+          const qaStatusHtml = selectHtml(qaStatuses, qaStatusValue, 'Select…')
+            .replace('<select', '<select data-field="qa_status" class="input qa-select"');
+
+          const qaNoteHtml = `<input class="input qa-note" type="text" maxlength="300" placeholder="QA notes" value="${esc(qaNoteValue)}" />`;
+
+          const saveHtml = `
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              <button class="btn triage-save" type="button">Save (QA)</button>
+              <span class="muted triage-msg" style="min-height: 14px;"></span>
+            </div>
+          `;
+
+          extraCells = [
+            `<td>${checked ? '<b>Yes</b>' : '<span class="muted">No</span>'}</td>`,
+            `<td>${esc(primary || '-')}</td>`,
+            `<td>${esc(escalation || '-')}</td>`,
+            `<td>${note ? esc(note) : '<span class="muted">-</span>'}</td>`,
+            `<td>${qaStatusHtml}</td>`,
+            `<td>${qaNoteHtml}</td>`,
+            `<td>${saveHtml}</td>`,
+          ];
+        } else {
+          // All = editable escape hatch (floor + QA)
+          const checkedHtml = `<label class="muted" style="display:flex; gap:8px; align-items:center;">
+            <input type="checkbox" class="triage-checked" ${checked ? 'checked' : ''} />
+            <span>Checked</span>
+          </label>`;
+
+          const primaryHtml = selectHtml(causes, primary, 'Select…')
+            .replace('<select', '<select data-field="primary_cause" class="input triage-select"');
+
+          const escalationHtml = selectHtml(escalations, escalation, 'Select…')
+            .replace('<select', '<select data-field="escalation" class="input triage-select"');
+
+          const noteHtml = `<input class="input triage-note" type="text" maxlength="300" placeholder="Optional" value="${esc(note)}" />`;
+
+          const qaStatusHtml = selectHtml(qaStatuses, qaStatusValue, 'Select…')
+            .replace('<select', '<select data-field="qa_status" class="input qa-select"');
+
+          const qaNoteHtml = `<input class="input qa-note" type="text" maxlength="300" placeholder="QA notes" value="${esc(qaNoteValue)}" />`;
+
+          const saveHtml = `
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              <button class="btn triage-save" type="button">Save (All)</button>
+              <span class="muted triage-msg" style="min-height: 14px;"></span>
+            </div>
+          `;
+
+          extraCells = [
+            `<td>${checkedHtml}</td>`,
+            `<td>${primaryHtml}</td>`,
+            `<td>${escalationHtml}</td>`,
+            `<td>${noteHtml}</td>`,
+            `<td>${qaStatusHtml}</td>`,
+            `<td>${qaNoteHtml}</td>`,
+            `<td>${saveHtml}</td>`,
+          ];
+        }
+
+        return `<tr data-delivery="${esc(del)}">${baseCells.join('')}${extraCells.join('')}</tr>`;
+      }).join('');
+
+      const msg = `Showing ${rows.length} deliveries (view: ${view}, source: ${payload.mode || '-'})`;
+      els.status.className = 'pill ok';
+      els.status.textContent = msg;
+    }
+
+    async function load() {
+      els.status.className = 'pill warn';
+      els.status.textContent = 'Loading…';
+      await loadTriageOptions();
+      const mode = encodeURIComponent(els.mode.value);
+      const limit = encodeURIComponent(els.limit.value);
+      const res = await fetch(`/api/deliveries?mode=${mode}&limit=${limit}`, { cache: 'no-store' });
+      const payload = await res.json();
+      render(payload);
+    }
+
+    els.rows.addEventListener('click', async (ev) => {
+      const btn = ev.target && ev.target.closest ? ev.target.closest('.triage-save') : null;
+      if (!btn) return;
+
+      const tr = btn.closest('tr');
+      if (!tr) return;
+      const delivery = tr.dataset.delivery;
+      const msgEl = tr.querySelector('.triage-msg');
+
+      const view = (els.view && els.view.value) ? els.view.value : 'unchecked';
+
+      const payload = {
+        delivery_number: delivery,
+        // best-effort attribution (shared PCs): user can set later
+        updated_by: localStorage.getItem('atc_user') || ''
+      };
+
+      if (view === 'unchecked') {
+        const checkedEl = tr.querySelector('.triage-checked');
+        const causeEl = tr.querySelector('select[data-field="primary_cause"]');
+        const escEl = tr.querySelector('select[data-field="escalation"]');
+        const noteEl = tr.querySelector('.triage-note');
+
+        payload.checked = !!(checkedEl && checkedEl.checked);
+        payload.primary_cause = causeEl ? causeEl.value : '';
+        payload.escalation = escEl ? escEl.value : '';
+        payload.note = noteEl ? noteEl.value : '';
+      } else if (view === 'qa') {
+      } else if (view === 'all') {
+        const checkedEl = tr.querySelector('.triage-checked');
+        const causeEl = tr.querySelector('select[data-field="primary_cause"]');
+        const escEl = tr.querySelector('select[data-field="escalation"]');
+        const noteEl = tr.querySelector('.triage-note');
+        const qaStatusEl = tr.querySelector('select[data-field="qa_status"]');
+        const qaNoteEl = tr.querySelector('.qa-note');
+
+        payload.checked = !!(checkedEl && checkedEl.checked);
+        payload.primary_cause = causeEl ? causeEl.value : '';
+        payload.escalation = escEl ? escEl.value : '';
+        payload.note = noteEl ? noteEl.value : '';
+        payload.qa_status = qaStatusEl ? qaStatusEl.value : '';
+        payload.qa_note = qaNoteEl ? qaNoteEl.value : '';
+      }
+
+      if (msgEl) {
+        msgEl.textContent = 'Saving…';
+      }
+
+      try {
+        const res = await fetch('/api/triage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const out = await res.json();
+        if (!out.ok) throw new Error(out.error || 'Save failed');
+        if (msgEl) msgEl.textContent = 'Saved';
+        await load();
+      } catch (e) {
+        if (msgEl) msgEl.textContent = String(e);
+      }
+    });
+
+    els.refresh.addEventListener('click', load);
+    els.q.addEventListener('input', () => load());
+    els.mode.addEventListener('change', load);
+    if (els.view) els.view.addEventListener('change', load);
+    els.limit.addEventListener('change', load);
+
+    load();
+    setInterval(load, 30000);
+  </script>
+</body>
+</html>

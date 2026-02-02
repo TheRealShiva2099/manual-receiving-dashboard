@@ -111,13 +111,98 @@ def create_app(base_dir: Path) -> Flask:
     analytics_template_path = base_dir / "analytics_template.html"
     viz_path = base_dir / "atc_viz.html"
     viz_template_path = base_dir / "viz_template.html"
-    roster_path = base_dir / "atc_roster.html"
-    roster_template_path = base_dir / "roster_template.html"
-    roster_json_path = base_dir / "atc_roster.json"
+    deliveries_path = base_dir / "atc_deliveries.html"
+    deliveries_template_path = base_dir / "deliveries_template.html"
+
+    triage_path = base_dir / "atc_delivery_triage.json"
+
+    def _default_triage() -> dict[str, Any]:
+        return {"version": 1, "updated_at": None, "deliveries": {}}
+
+    def _load_triage() -> dict[str, Any]:
+        if not triage_path.exists():
+            return _default_triage()
+        try:
+            payload = json.loads(triage_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return _default_triage()
+        if not isinstance(payload, dict):
+            return _default_triage()
+        payload.setdefault("version", 1)
+        payload.setdefault("updated_at", None)
+        if not isinstance(payload.get("deliveries"), dict):
+            payload["deliveries"] = {}
+        return payload
+
+    def _save_triage(payload: dict[str, Any]) -> None:
+        # Atomic-ish write to avoid corrupting JSON on crash.
+        tmp = triage_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        tmp.replace(triage_path)
+
+    def _normalize_primary_cause(value: Any) -> str:
+        s = str(value or "").strip()
+        # Back-compat: old label
+        if s.lower() == "process deviation":
+            return "Not on process"
+        return s
+
+    def _upsert_delivery_triage(*, delivery_number: str, updates: dict[str, Any]) -> dict[str, Any]:
+        payload = _load_triage()
+        deliveries = payload.get("deliveries", {})
+        if not isinstance(deliveries, dict):
+            deliveries = {}
+            payload["deliveries"] = deliveries
+
+        key = str(delivery_number).strip()
+        if not key:
+            raise ValueError("delivery_number is required")
+
+        current = deliveries.get(key, {})
+        if not isinstance(current, dict):
+            current = {}
+
+        # Only allow known fields (basic guardrail)
+        allowed = {
+            "checked",
+            "primary_cause",
+            "escalation",
+            "note",
+            "updated_by",
+            # QA placeholders (read-only for now, but stored if sent)
+            "qa_status",
+            "qa_note",
+        }
+        clean: dict[str, Any] = {k: v for k, v in updates.items() if k in allowed}
+        if "primary_cause" in clean:
+            clean["primary_cause"] = _normalize_primary_cause(clean.get("primary_cause"))
+
+        current.update(clean)
+        current["updated_at_epoch"] = int(time.time())
+        deliveries[key] = current
+        payload["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        _save_triage(payload)
+        return current
+
+    # Legacy roster (removed): leaving filenames alone so old files can exist without being served.
 
     @app.get("/")
-    def dashboard() -> Response:
-        # Always serve something so the UI works even before the first BQ cycle finishes.
+    def deliveries_home() -> Response:
+        # Home page: deliveries history (ops doesn't want to scroll Teams).
+        if deliveries_path.exists():
+            return send_file(deliveries_path)
+        if deliveries_template_path.exists():
+            return send_file(deliveries_template_path)
+        return Response(
+            "Deliveries template missing. Reinstall the ATC package.",
+            status=500,
+            mimetype="text/plain",
+        )
+
+    @app.get("/raw")
+    def raw_data() -> Response:
+        # Former home page: raw events table.
         if dashboard_path.exists():
             return send_file(dashboard_path)
         if template_path.exists():
@@ -152,76 +237,261 @@ def create_app(base_dir: Path) -> Flask:
             mimetype="text/plain",
         )
 
-    @app.get("/roster")
-    def roster() -> Response:
-        if roster_path.exists():
-            return send_file(roster_path)
-        if roster_template_path.exists():
-            return send_file(roster_template_path)
-        return Response(
-            "Roster template missing. Reinstall the ATC package.",
-            status=500,
-            mimetype="text/plain",
-        )
+    @app.get("/deliveries")
+    def deliveries_alias() -> Response:
+        return deliveries_home()
 
-    def _default_roster() -> dict[str, Any]:
-        return {
-            "version": 1,
-            "updated_at": None,
-            "roles": {
-                "inbound": {"Shift A1": [], "Shift A2": [], "Shift B1": [], "Off Shift": []}
-            },
-        }
+    @app.get("/api/deliveries")
+    def api_deliveries() -> Response:
+        """Return delivery-level rollups from the local event log.
 
-    @app.get("/api/roster")
-    def api_roster_get() -> Response:
-        if not roster_json_path.exists():
-            roster_json_path.write_text(json.dumps(_default_roster(), indent=2), encoding="utf-8")
+        This is the "history table" for ops so they don't have to scroll Teams.
+        """
+
+        mode = str(request.args.get("mode", "notified")).strip().lower()
+        limit = int(request.args.get("limit", "50") or 50)
+        limit = max(1, min(250, limit))
+
+        if not events_log_path.exists():
+            return jsonify({"ok": True, "mode": mode, "rows": []})
 
         try:
-            payload = json.loads(roster_json_path.read_text(encoding="utf-8"))
+            log_payload: dict[str, Any] = json.loads(events_log_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
-            payload = _default_roster()
+            return jsonify({"ok": True, "mode": mode, "rows": []})
 
-        if not isinstance(payload, dict):
-            payload = _default_roster()
+        try:
+            email_state: dict[str, Any] = json.loads((base_dir / "atc_email_state.json").read_text(encoding="utf-8"))
+        except Exception:
+            email_state = {}
 
-        return jsonify(payload)
+        notified_map = email_state.get("emailed_deliveries", {}) if isinstance(email_state, dict) else {}
+        if not isinstance(notified_map, dict):
+            notified_map = {}
 
-    @app.post("/api/roster")
-    def api_roster_post() -> Response:
+        shift_map = email_state.get("notified_shift_by_delivery", {}) if isinstance(email_state, dict) else {}
+        if not isinstance(shift_map, dict):
+            shift_map = {}
+
+        triage_payload = _load_triage()
+        triage_map = triage_payload.get("deliveries", {}) if isinstance(triage_payload, dict) else {}
+        if not isinstance(triage_map, dict):
+            triage_map = {}
+
+        events = log_payload.get("events", []) if isinstance(log_payload, dict) else []
+        if not isinstance(events, list):
+            events = []
+
+        # Optional overflow filter (mirrors /api/events behavior)
+        try:
+            cfg = _load_config(base_dir)
+            overflow = {str(x).strip().upper() for x in (cfg.get("monitoring", {}).get("overflow_locations", []) or [])}
+            min_cases_per_delivery = float((cfg.get("deliveries_page", {}) or {}).get("min_cases_per_delivery", 10) or 0)
+        except Exception:
+            overflow = set()
+            min_cases_per_delivery = 0.0
+
+        def norm(s: Any) -> str:
+            return str(s or "").strip()
+
+        def safe_float(x: Any) -> float:
+            try:
+                return float(x)
+            except Exception:
+                return 0.0
+
+        def to_local(ts_epoch: Any) -> str:
+            try:
+                return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(int(ts_epoch)))
+            except Exception:
+                return ""
+
+        # Group by delivery
+        by_delivery: dict[str, list[dict[str, Any]]] = {}
+        for e in events:
+            if not isinstance(e, dict):
+                continue
+            loc = norm(e.get("location_id"))
+            if overflow and loc and loc.upper() in overflow:
+                continue
+            d = norm(e.get("delivery_number"))
+            if not d:
+                continue
+            by_delivery.setdefault(d, []).append(e)
+
+        rows: list[dict[str, Any]] = []
+        for d, evs in by_delivery.items():
+            notified_epoch = notified_map.get(d)
+            is_notified = isinstance(notified_epoch, (int, float, str)) and str(notified_epoch).strip() != ""
+
+            if mode == "notified" and not is_notified:
+                continue
+
+            # Delivery-level aggregates
+            shift_counts: dict[str, int] = {}
+            locs: set[str] = set()
+            total_cases = 0.0
+
+            items: dict[str, dict[str, Any]] = {}
+            for e in evs:
+                sh = norm(e.get("shift_label")) or "Off Shift"
+                shift_counts[sh] = shift_counts.get(sh, 0) + 1
+
+                loc = norm(e.get("location_id"))
+                if loc:
+                    locs.add(loc)
+
+                c = safe_float(e.get("case_qty"))
+                total_cases += c
+
+                item = norm(e.get("item_nbr"))
+                if not item:
+                    continue
+                meta = items.setdefault(
+                    item,
+                    {
+                        "item_nbr": item,
+                        "item_desc": norm(e.get("item_desc")),
+                        "cases": 0.0,
+                        "locations": set(),
+                    },
+                )
+                if not meta.get("item_desc"):
+                    meta["item_desc"] = norm(e.get("item_desc"))
+                meta["cases"] = float(meta.get("cases", 0.0)) + c
+                if loc:
+                    meta["locations"].add(loc)
+
+            # Choose the most common shift_label.
+            shift_label = "Off Shift"
+            if shift_counts:
+                shift_label = sorted(shift_counts.items(), key=lambda kv: kv[1], reverse=True)[0][0]
+
+            # If the delivery was notified, prefer the shift label that was used
+            # at notification time (prevents drift across shift changes).
+            anchored = str(shift_map.get(d, "")).strip()
+            if anchored:
+                shift_label = anchored
+
+            item_rows = list(items.values())
+            for it in item_rows:
+                it["locations"] = sorted(list(it.get("locations", set())))
+            item_rows.sort(key=lambda x: float(x.get("cases", 0.0)), reverse=True)
+
+            # Minimum cases filter for Deliveries page
+            if min_cases_per_delivery > 0 and total_cases < min_cases_per_delivery:
+                continue
+
+            loc_list = sorted(list(locs))
+
+            # Latest detected_at (best-effort)
+            latest_detected_epoch = 0
+            for e in evs:
+                dt_s = norm(e.get("detected_at"))
+                if not dt_s:
+                    continue
+                try:
+                    # detected_at is local ISO without timezone
+                    epoch = int(time.mktime(time.strptime(dt_s, "%Y-%m-%dT%H:%M:%S")))
+                    if epoch > latest_detected_epoch:
+                        latest_detected_epoch = epoch
+                except Exception:
+                    continue
+
+            triage = triage_map.get(d, {})
+            if not isinstance(triage, dict):
+                triage = {}
+
+            rows.append(
+                {
+                    "delivery_number": d,
+                    "shift_label": shift_label,
+                    "notified_at_epoch": int(notified_epoch) if str(notified_epoch).isdigit() else None,
+                    "notified_at_local": to_local(notified_epoch) if is_notified else "",
+                    "latest_detected_at_epoch": latest_detected_epoch,
+                    "latest_detected_at_local": to_local(latest_detected_epoch) if latest_detected_epoch else "",
+                    "total_cases": round(total_cases, 2),
+                    "locations": loc_list,
+                    "items": item_rows,
+
+                    # DC/AM triage fields
+                    "triage_checked": bool(triage.get("checked", False)),
+                    "triage_primary_cause": _normalize_primary_cause(triage.get("primary_cause", "")),
+                    "triage_escalation": str(triage.get("escalation", "") or ""),
+                    "triage_note": str(triage.get("note", "") or ""),
+                    "triage_updated_by": str(triage.get("updated_by", "") or ""),
+                    "triage_updated_at_epoch": int(triage.get("updated_at_epoch") or 0) if str(triage.get("updated_at_epoch") or "").isdigit() else 0,
+                    "triage_updated_at_local": to_local(triage.get("updated_at_epoch")) if triage.get("updated_at_epoch") else "",
+
+                    # QA placeholders (not implemented yet)
+                    "qa_status": str(triage.get("qa_status", "") or ""),
+                    "qa_note": str(triage.get("qa_note", "") or ""),
+                }
+            )
+
+        # Sort newest first
+        if mode == "notified":
+            rows.sort(key=lambda r: int(r.get("notified_at_epoch") or 0), reverse=True)
+        else:
+            rows.sort(key=lambda r: int(r.get("latest_detected_at_epoch") or 0), reverse=True)
+
+        return jsonify({"ok": True, "mode": mode, "rows": rows[:limit]})
+
+    @app.get("/api/triage-options")
+    def api_triage_options() -> Response:
+        try:
+            cfg = _load_config(base_dir)
+            triage = cfg.get("triage", {}) if isinstance(cfg, dict) else {}
+        except Exception:
+            triage = {}
+        return jsonify(
+            {
+                "ok": True,
+                "primary_causes": triage.get("primary_causes", []),
+                "escalation_options": triage.get("escalation_options", []),
+                "qa_status_options": triage.get("qa_status_options", []),
+            }
+        )
+
+    @app.get("/api/triage")
+    def api_triage_get() -> Response:
+        payload = _load_triage()
+        delivery = str(request.args.get("delivery", "")).strip()
+        if delivery:
+            deliveries = payload.get("deliveries", {}) if isinstance(payload, dict) else {}
+            if not isinstance(deliveries, dict):
+                deliveries = {}
+            return jsonify({"ok": True, "delivery_number": delivery, "triage": deliveries.get(delivery, {})})
+        return jsonify({"ok": True, "triage": payload})
+
+    @app.post("/api/triage")
+    def api_triage_post() -> Response:
         try:
             incoming = request.get_json(force=True)
         except Exception:
             return jsonify({"ok": False, "error": "Invalid JSON"}), 400
 
-        if not isinstance(incoming, dict) or "roles" not in incoming:
-            return jsonify({"ok": False, "error": "Invalid roster schema"}), 400
+        if not isinstance(incoming, dict):
+            return jsonify({"ok": False, "error": "Invalid payload"}), 400
 
-        roles = incoming.get("roles")
-        if not isinstance(roles, dict):
-            return jsonify({"ok": False, "error": "Invalid roles"}), 400
+        delivery_number = str(incoming.get("delivery_number", "")).strip()
+        if not delivery_number:
+            return jsonify({"ok": False, "error": "delivery_number is required"}), 400
 
-        def norm_list(x: Any) -> list[str]:
-            if not isinstance(x, list):
-                return []
-            out: list[str] = []
-            for v in x:
-                s = str(v).strip().lower()
-                if s and "@" in s:
-                    out.append(s)
-            return sorted(list(set(out)))
+        updates = dict(incoming)
+        updates.pop("delivery_number", None)
 
-        # Normalize + enforce known shifts (inbound only)
-        shifts = ["Shift A1", "Shift A2", "Shift B1", "Off Shift"]
-        clean = _default_roster()
-        src = roles.get("inbound", {}) if isinstance(roles.get("inbound"), dict) else {}
-        for sh in shifts:
-            clean["roles"]["inbound"][sh] = norm_list(src.get(sh, []))
+        # Normalize
+        if "checked" in updates:
+            updates["checked"] = bool(updates.get("checked"))
+        if "note" in updates:
+            updates["note"] = str(updates.get("note") or "")[:300]
 
-        clean["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-        roster_json_path.write_text(json.dumps(clean, indent=2), encoding="utf-8")
-        return jsonify({"ok": True, "roster": clean})
+        try:
+            saved = _upsert_delivery_triage(delivery_number=delivery_number, updates=updates)
+            return jsonify({"ok": True, "delivery_number": delivery_number, "triage": saved})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
 
     @app.get("/api/events")
     def api_events() -> Response:

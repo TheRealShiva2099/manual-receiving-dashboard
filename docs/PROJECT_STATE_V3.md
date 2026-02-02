@@ -63,7 +63,7 @@ All served by `atc_data_server.py`.
 - `/` — Operations dashboard (main)
 - `/viz` — Visualizations (charts) using local event log (no extra BQ load)
 - `/analytics` — Top items analytics endpoint backed by BigQuery (on-demand refresh)
-- `/roster` — Shift roster management (drag/drop)
+- `/deliveries` — Delivery-level history table (what was notified + item/location/cases)
 
 Navigation tabs are at the top of pages.
 
@@ -110,15 +110,13 @@ Stored in the project directory.
 - `outbox_emails/`
   - audit trail of generated notification HTML/metadata
 
-### 3) Shift roster page
-- `/roster`
-- Inbound-only (outbound removed explicitly)
-- Drag/drop manager emails into shift buckets.
-- Backend endpoints:
-  - `GET /api/roster`
-  - `POST /api/roster`
+### 3) Deliveries history page
+- `/deliveries`
+- Read-only rollup of delivery notifications so ops do not need to scroll Teams.
+- Backend endpoint:
+  - `GET /api/deliveries`
 
-Note: roster currently does NOT control Teams channel membership. Teams channel membership is separate and would require Graph or Power Automate.
+It groups by delivery_number and shows impacted item_nbr + item_desc + case totals + locations.
 
 ### 4) Notifications
 #### A) Teams channel notifications (primary)

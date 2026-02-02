@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- Removed Roster page + API; added Deliveries page (/deliveries) with delivery-level notification history table.
+
 ## v3.0.0
 - Site-hosted web dashboard support (LAN host mode) + hosting docs
 - Teams shift-channel notifications via Incoming Webhooks (A1/A2/B1)
