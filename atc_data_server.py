@@ -21,6 +21,14 @@ from typing import Any
 
 from flask import Flask, Response, jsonify, request, send_file
 
+from atc_db import (
+    export_delivery_state_csv,
+    export_delivery_state_rows,
+    get_delivery_state,
+    migrate_from_legacy_triage_json_if_needed,
+    upsert_delivery_state,
+)
+
 
 def _get_env_int(name: str, default: int) -> int:
     try:
@@ -115,6 +123,9 @@ def create_app(base_dir: Path) -> Flask:
     deliveries_template_path = base_dir / "deliveries_template.html"
 
     triage_path = base_dir / "atc_delivery_triage.json"
+
+    # Prep SQLite (analytics-friendly) and import legacy triage JSON once.
+    migrate_from_legacy_triage_json_if_needed(base_dir)
 
     def _default_triage() -> dict[str, Any]:
         return {"version": 1, "updated_at": None, "deliveries": {}}
@@ -249,6 +260,12 @@ def create_app(base_dir: Path) -> Flask:
         """
 
         mode = str(request.args.get("mode", "notified")).strip().lower()
+        scope = str(request.args.get("scope", "floor")).strip().lower()
+        # scope:
+        # - floor: default ops view (min cases threshold)
+        # - active_flagged: MR flagged (includes 0-case deliveries)
+        # - past: cleared/audited deliveries
+
         limit = int(request.args.get("limit", "50") or 50)
         limit = max(1, min(250, limit))
 
@@ -273,9 +290,14 @@ def create_app(base_dir: Path) -> Flask:
         if not isinstance(shift_map, dict):
             shift_map = {}
 
-        triage_payload = _load_triage()
-        triage_map = triage_payload.get("deliveries", {}) if isinstance(triage_payload, dict) else {}
-        if not isinstance(triage_map, dict):
+        # SQLite-backed delivery state (triage + QA + audit/clear)
+        triage_map: dict[str, dict[str, Any]] = {}
+        try:
+            for r in export_delivery_state_rows(base_dir):
+                dn = str(r.get("delivery_number", "")).strip()
+                if dn:
+                    triage_map[dn] = r
+        except Exception:
             triage_map = {}
 
         events = log_payload.get("events", []) if isinstance(log_payload, dict) else []
@@ -287,6 +309,8 @@ def create_app(base_dir: Path) -> Flask:
             cfg = _load_config(base_dir)
             overflow = {str(x).strip().upper() for x in (cfg.get("monitoring", {}).get("overflow_locations", []) or [])}
             min_cases_per_delivery = float((cfg.get("deliveries_page", {}) or {}).get("min_cases_per_delivery", 10) or 0)
+            if scope in {"active_flagged", "past"}:
+                min_cases_per_delivery = 0.0
         except Exception:
             overflow = set()
             min_cases_per_delivery = 0.0
@@ -319,8 +343,14 @@ def create_app(base_dir: Path) -> Flask:
                 continue
             by_delivery.setdefault(d, []).append(e)
 
+        delivery_numbers = set(by_delivery.keys())
+        if scope in {"active_flagged", "past"} and mode == "notified":
+            # Include MR-flagged deliveries even if 0 cases have landed in the event log yet.
+            delivery_numbers |= {str(k).strip() for k in notified_map.keys()}
+
         rows: list[dict[str, Any]] = []
-        for d, evs in by_delivery.items():
+        for d in sorted(delivery_numbers):
+            evs = by_delivery.get(d, [])
             notified_epoch = notified_map.get(d)
             is_notified = isinstance(notified_epoch, (int, float, str)) and str(notified_epoch).strip() != ""
 
@@ -402,6 +432,17 @@ def create_app(base_dir: Path) -> Flask:
             if not isinstance(triage, dict):
                 triage = {}
 
+            is_cleared = bool(triage.get("cleared_from_active", 0))
+            is_audit_completed = bool(triage.get("audit_completed", 0))
+
+            if scope == "past":
+                if not (is_cleared or is_audit_completed):
+                    continue
+            else:
+                # active lists hide cleared deliveries
+                if is_cleared:
+                    continue
+
             rows.append(
                 {
                     "delivery_number": d,
@@ -423,9 +464,22 @@ def create_app(base_dir: Path) -> Flask:
                     "triage_updated_at_epoch": int(triage.get("updated_at_epoch") or 0) if str(triage.get("updated_at_epoch") or "").isdigit() else 0,
                     "triage_updated_at_local": to_local(triage.get("updated_at_epoch")) if triage.get("updated_at_epoch") else "",
 
-                    # QA placeholders (not implemented yet)
+                    # QA
                     "qa_status": str(triage.get("qa_status", "") or ""),
                     "qa_note": str(triage.get("qa_note", "") or ""),
+
+                    # Audit (QA/DC check-up) — completion != MR done
+                    "audit_completed": bool(triage.get("audit_completed", 0)),
+                    "audit_completed_at_epoch": int(triage.get("audit_completed_at_epoch") or 0) if str(triage.get("audit_completed_at_epoch") or "").isdigit() else 0,
+                    "audit_completed_at_local": to_local(triage.get("audit_completed_at_epoch")) if triage.get("audit_completed_at_epoch") else "",
+                    "audit_completed_by": str(triage.get("audit_completed_by", "") or ""),
+
+                    # Clear from active (floor can hide when no cases left)
+                    "cleared_from_active": bool(triage.get("cleared_from_active", 0)),
+                    "cleared_reason": str(triage.get("cleared_reason", "") or ""),
+                    "cleared_at_epoch": int(triage.get("cleared_at_epoch") or 0) if str(triage.get("cleared_at_epoch") or "").isdigit() else 0,
+                    "cleared_at_local": to_local(triage.get("cleared_at_epoch")) if triage.get("cleared_at_epoch") else "",
+                    "cleared_by": str(triage.get("cleared_by", "") or ""),
                 }
             )
 
@@ -450,19 +504,23 @@ def create_app(base_dir: Path) -> Flask:
                 "primary_causes": triage.get("primary_causes", []),
                 "escalation_options": triage.get("escalation_options", []),
                 "qa_status_options": triage.get("qa_status_options", []),
+                "clear_reasons": triage.get("clear_reasons", []),
             }
         )
 
     @app.get("/api/triage")
     def api_triage_get() -> Response:
-        payload = _load_triage()
         delivery = str(request.args.get("delivery", "")).strip()
         if delivery:
-            deliveries = payload.get("deliveries", {}) if isinstance(payload, dict) else {}
-            if not isinstance(deliveries, dict):
-                deliveries = {}
-            return jsonify({"ok": True, "delivery_number": delivery, "triage": deliveries.get(delivery, {})})
-        return jsonify({"ok": True, "triage": payload})
+            state = get_delivery_state(base_dir, delivery) or {}
+            return jsonify({"ok": True, "delivery_number": delivery, "triage": state})
+
+        # For debugging: dump all state
+        try:
+            rows = list(export_delivery_state_rows(base_dir))
+        except Exception:
+            rows = []
+        return jsonify({"ok": True, "rows": rows})
 
     @app.post("/api/triage")
     def api_triage_post() -> Response:
@@ -481,17 +539,69 @@ def create_app(base_dir: Path) -> Flask:
         updates = dict(incoming)
         updates.pop("delivery_number", None)
 
-        # Normalize
+        # Normalize + enrich
+        now = int(time.time())
+
         if "checked" in updates:
             updates["checked"] = bool(updates.get("checked"))
-        if "note" in updates:
-            updates["note"] = str(updates.get("note") or "")[:300]
+
+        if "primary_cause" in updates:
+            updates["primary_cause"] = _normalize_primary_cause(updates.get("primary_cause"))
+
+        for k in ("note", "qa_note"):
+            if k in updates:
+                updates[k] = str(updates.get(k) or "")[:300]
+
+        for k in ("escalation", "qa_status", "cleared_reason"):
+            if k in updates:
+                updates[k] = str(updates.get(k) or "")[:120]
+
+        # Audit completion (QA/DC check-up)
+        if "audit_completed" in updates:
+            updates["audit_completed"] = bool(updates.get("audit_completed"))
+            if updates["audit_completed"]:
+                updates.setdefault("audit_completed_at_epoch", now)
+                updates.setdefault("audit_completed_by", str(incoming.get("updated_by") or "").strip())
+
+        # Clear from active (no more cases at locations)
+        if "cleared_from_active" in updates:
+            updates["cleared_from_active"] = bool(updates.get("cleared_from_active"))
+            if updates["cleared_from_active"]:
+                updates.setdefault("cleared_at_epoch", now)
+                updates.setdefault("cleared_by", str(incoming.get("updated_by") or "").strip())
+
+        # Always store updated_by if provided
+        if "updated_by" in incoming:
+            updates["updated_by"] = str(incoming.get("updated_by") or "").strip()[:80]
+
+        # Event typing for analytics
+        event_type = "triage_save"
+        if any(k in updates for k in ("qa_status", "qa_note")):
+            event_type = "qa_save"
+        if "audit_completed" in updates:
+            event_type = "audit_update"
+        if "cleared_from_active" in updates:
+            event_type = "clear_update"
 
         try:
-            saved = _upsert_delivery_triage(delivery_number=delivery_number, updates=updates)
+            saved = upsert_delivery_state(
+                base_dir,
+                delivery_number=delivery_number,
+                updates=updates,
+                event_type=event_type,
+            )
             return jsonify({"ok": True, "delivery_number": delivery_number, "triage": saved})
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 400
+
+    @app.get("/api/export/delivery_state.csv")
+    def api_export_delivery_state_csv() -> Response:
+        csv_text = export_delivery_state_csv(base_dir)
+        return Response(
+            csv_text,
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment; filename=delivery_state.csv"},
+        )
 
     @app.get("/api/events")
     def api_events() -> Response:

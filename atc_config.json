@@ -71,7 +71,16 @@
       "Escalated to QA"
     ],
     "qa_status_options": [
-      "(QA) Placeholder - not implemented"
+      "Investigating",
+      "Root cause identified",
+      "Approved for MR",
+      "Not approved / hold",
+      "Follow-up needed"
+    ],
+    "clear_reasons": [
+      "No more MR cases at locations",
+      "Freight processed / nothing left to work",
+      "Other"
     ]
   },
   "teams_notifications": {

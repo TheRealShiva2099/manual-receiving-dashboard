@@ -27,6 +27,7 @@ atc_events_log.json
 atc_state.json
 atc_status.json
 atc_delivery_triage.json
+atc.db
 *_cache.json
 
 # Email/Graph local auth state

@@ -90,9 +90,11 @@
         <div class="field">
           <div class="label">View</div>
           <select id="view">
-            <option value="unchecked" selected>Unchecked (Floor)</option>
+            <option value="unchecked" selected>Unchecked (Floor 10+ cases)</option>
+            <option value="active_flagged">Active MR (Flagged, incl. 0 cases)</option>
             <option value="qa">Escalated to QA (QA)</option>
-            <option value="all">All (read-only-ish)</option>
+            <option value="all">All (editable)</option>
+            <option value="past">Past deliveries (Audited/Cleared)</option>
           </select>
         </div>
         <div class="field">
@@ -246,9 +248,11 @@
       const causes = (triageOptions && triageOptions.primary_causes) || [];
       const escalations = (triageOptions && triageOptions.escalation_options) || [];
       const qaStatuses = (triageOptions && triageOptions.qa_status_options) || [];
+      const clearReasons = (triageOptions && triageOptions.clear_reasons) || [];
 
       const baseHead = [
         '<th style="min-width: 140px;">Notified at</th>',
+        '<th style="min-width: 160px;">Last MR case</th>',
         '<th style="min-width: 120px;">Shift</th>',
         '<th style="min-width: 130px;">Delivery</th>',
         '<th style="min-width: 140px;">Total cases</th>',
@@ -263,7 +267,9 @@
           '<th style="min-width: 180px;">Primary cause</th>',
           '<th style="min-width: 160px;">Disposition</th>',
           '<th style="min-width: 240px;">Notes</th>',
-          '<th style="min-width: 120px;">Save</th>',
+          '<th style="min-width: 120px;">Clear?</th>',
+          '<th style="min-width: 220px;">Clear reason</th>',
+          '<th style="min-width: 140px;">Save</th>',
         ];
       } else if (view === 'qa') {
         extraHead = [
@@ -273,10 +279,11 @@
           '<th style="min-width: 280px;">Floor notes</th>',
           '<th style="min-width: 180px;">QA status</th>',
           '<th style="min-width: 280px;">QA notes</th>',
-          '<th style="min-width: 120px;">Save</th>',
+          '<th style="min-width: 160px;">Audit complete</th>',
+          '<th style="min-width: 140px;">Save</th>',
         ];
       } else {
-        // All = editable escape hatch
+        // All / active_flagged / past = editable escape hatch
         extraHead = [
           '<th style="min-width: 110px;">Checked</th>',
           '<th style="min-width: 180px;">Primary cause</th>',
@@ -284,7 +291,10 @@
           '<th style="min-width: 240px;">Notes</th>',
           '<th style="min-width: 180px;">QA status</th>',
           '<th style="min-width: 280px;">QA notes</th>',
-          '<th style="min-width: 120px;">Save</th>',
+          '<th style="min-width: 160px;">Audit complete</th>',
+          '<th style="min-width: 120px;">Clear?</th>',
+          '<th style="min-width: 220px;">Clear reason</th>',
+          '<th style="min-width: 140px;">Save</th>',
         ];
       }
 
@@ -294,6 +304,7 @@
 
       els.rows.innerHTML = rows.map(r => {
         const notified = r.notified_at_local || '-';
+        const lastMr = r.latest_detected_at_local || '-';
         const sh = r.shift_label || '-';
         const del = r.delivery_number || '-';
         const total = Number(r.total_cases || 0).toFixed(1);
@@ -306,9 +317,13 @@
         const note = r.triage_note || '';
         const qaStatusValue = r.qa_status || '';
         const qaNoteValue = r.qa_note || '';
+        const auditCompleted = !!r.audit_completed;
+        const cleared = !!r.cleared_from_active;
+        const clearedReason = r.cleared_reason || '';
 
         const baseCells = [
           `<td>${esc(notified)}</td>`,
+          `<td>${esc(lastMr)}</td>`,
           `<td>${esc(sh)}</td>`,
           `<td class="mono">${esc(del)}</td>`,
           `<td><b>${esc(total)}</b></td>`,
@@ -332,9 +347,18 @@
 
           const noteHtml = `<input class="input triage-note" type="text" maxlength="300" placeholder="Optional" value="${esc(note)}" />`;
 
+          const clearHtml = `<label class="muted" style="display:flex; gap:8px; align-items:center;">
+            <input type="checkbox" class="clear-checked" ${cleared ? 'checked' : ''} />
+            <span>Clear</span>
+          </label>`;
+
+          const clearReasonHtml = selectHtml(clearReasons, clearedReason, 'Select…')
+            .replace('<select', '<select data-field="cleared_reason" class="input clear-select"');
+
           const saveHtml = `
             <div style="display:flex; flex-direction:column; gap:6px;">
-              <button class="btn triage-save" type="button">Save (Floor)</button>
+              <button class="btn triage-save" type="button">Save</button>
+              <button class="btn secondary triage-copy" type="button">Copy</button>
               <span class="muted triage-msg" style="min-height: 14px;"></span>
             </div>
           `;
@@ -344,6 +368,8 @@
             `<td>${primaryHtml}</td>`,
             `<td>${escalationHtml}</td>`,
             `<td>${noteHtml}</td>`,
+            `<td>${clearHtml}</td>`,
+            `<td>${clearReasonHtml}</td>`,
             `<td>${saveHtml}</td>`,
           ];
         } else if (view === 'qa') {
@@ -352,9 +378,15 @@
 
           const qaNoteHtml = `<input class="input qa-note" type="text" maxlength="300" placeholder="QA notes" value="${esc(qaNoteValue)}" />`;
 
+          const auditHtml = `<label class="muted" style="display:flex; gap:8px; align-items:center;">
+            <input type="checkbox" class="audit-complete" ${auditCompleted ? 'checked' : ''} />
+            <span>Completed</span>
+          </label>`;
+
           const saveHtml = `
             <div style="display:flex; flex-direction:column; gap:6px;">
-              <button class="btn triage-save" type="button">Save (QA)</button>
+              <button class="btn triage-save" type="button">Save</button>
+              <button class="btn secondary triage-copy" type="button">Copy</button>
               <span class="muted triage-msg" style="min-height: 14px;"></span>
             </div>
           `;
@@ -366,6 +398,7 @@
             `<td>${note ? esc(note) : '<span class="muted">-</span>'}</td>`,
             `<td>${qaStatusHtml}</td>`,
             `<td>${qaNoteHtml}</td>`,
+            `<td>${auditHtml}</td>`,
             `<td>${saveHtml}</td>`,
           ];
         } else {
@@ -388,9 +421,23 @@
 
           const qaNoteHtml = `<input class="input qa-note" type="text" maxlength="300" placeholder="QA notes" value="${esc(qaNoteValue)}" />`;
 
+          const auditHtml = `<label class="muted" style="display:flex; gap:8px; align-items:center;">
+            <input type="checkbox" class="audit-complete" ${auditCompleted ? 'checked' : ''} />
+            <span>Completed</span>
+          </label>`;
+
+          const clearHtml = `<label class="muted" style="display:flex; gap:8px; align-items:center;">
+            <input type="checkbox" class="clear-checked" ${cleared ? 'checked' : ''} />
+            <span>Clear</span>
+          </label>`;
+
+          const clearReasonHtml = selectHtml(clearReasons, clearedReason, 'Select…')
+            .replace('<select', '<select data-field="cleared_reason" class="input clear-select"');
+
           const saveHtml = `
             <div style="display:flex; flex-direction:column; gap:6px;">
-              <button class="btn triage-save" type="button">Save (All)</button>
+              <button class="btn triage-save" type="button">Save</button>
+              <button class="btn secondary triage-copy" type="button">Copy</button>
               <span class="muted triage-msg" style="min-height: 14px;"></span>
             </div>
           `;
@@ -402,6 +449,9 @@
             `<td>${noteHtml}</td>`,
             `<td>${qaStatusHtml}</td>`,
             `<td>${qaNoteHtml}</td>`,
+            `<td>${auditHtml}</td>`,
+            `<td>${clearHtml}</td>`,
+            `<td>${clearReasonHtml}</td>`,
             `<td>${saveHtml}</td>`,
           ];
         }
@@ -420,13 +470,91 @@
       await loadTriageOptions();
       const mode = encodeURIComponent(els.mode.value);
       const limit = encodeURIComponent(els.limit.value);
-      const res = await fetch(`/api/deliveries?mode=${mode}&limit=${limit}`, { cache: 'no-store' });
+
+      const view = (els.view && els.view.value) ? els.view.value : 'unchecked';
+      // Map UI view -> API scope
+      let scope = 'floor';
+      if (view === 'active_flagged') scope = 'active_flagged';
+      else if (view === 'past') scope = 'past';
+      else if (view === 'qa') scope = 'active_flagged';
+      else if (view === 'all') scope = 'active_flagged';
+
+      const res = await fetch(`/api/deliveries?mode=${mode}&limit=${limit}&scope=${encodeURIComponent(scope)}`, { cache: 'no-store' });
       const payload = await res.json();
       render(payload);
     }
 
+    async function copyText(text) {
+      const t = String(text || '').trim();
+      if (!t) return;
+
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(t);
+          return;
+        }
+      } catch (_) {
+        // fall through
+      }
+
+      // Fallback (older/locked-down browsers)
+      const ta = document.createElement('textarea');
+      ta.value = t;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+
+    function buildSummary({ delivery, view, tr }) {
+      const shift = (tr.children[2] && tr.children[2].textContent) ? tr.children[2].textContent.trim() : '';
+      const notifiedAt = (tr.children[0] && tr.children[0].textContent) ? tr.children[0].textContent.trim() : '';
+      const lastMr = (tr.children[1] && tr.children[1].textContent) ? tr.children[1].textContent.trim() : '';
+      const totalCases = (tr.querySelector('td b') && tr.querySelector('td b').textContent) ? tr.querySelector('td b').textContent.trim() : '';
+
+      const checkedEl = tr.querySelector('.triage-checked');
+      const causeEl = tr.querySelector('select[data-field="primary_cause"]');
+      const escEl = tr.querySelector('select[data-field="escalation"]');
+      const noteEl = tr.querySelector('.triage-note');
+      const qaStatusEl = tr.querySelector('select[data-field="qa_status"]');
+      const qaNoteEl = tr.querySelector('.qa-note');
+      const auditEl = tr.querySelector('.audit-complete');
+      const clearEl = tr.querySelector('.clear-checked');
+      const clearReasonEl = tr.querySelector('select[data-field="cleared_reason"]');
+
+      const lines = [
+        `MR Delivery: ${delivery}`,
+        shift ? `Shift: ${shift}` : null,
+        notifiedAt && notifiedAt !== '-' ? `Notified: ${notifiedAt}` : null,
+        lastMr && lastMr !== '-' ? `Last MR case: ${lastMr}` : null,
+        totalCases ? `Total cases: ${totalCases}` : null,
+        '',
+        'Floor:',
+        `- Checked: ${checkedEl ? (checkedEl.checked ? 'Yes' : 'No') : 'N/A'}`,
+        `- Cause: ${causeEl ? (causeEl.value || '-') : '-'}`,
+        `- Disposition: ${escEl ? (escEl.value || '-') : '-'}`,
+        `- Notes: ${noteEl ? (noteEl.value || '-') : '-'}`,
+        '',
+        'QA:',
+        `- Status: ${qaStatusEl ? (qaStatusEl.value || '-') : '-'}`,
+        `- Notes: ${qaNoteEl ? (qaNoteEl.value || '-') : '-'}`,
+        `- Audit complete: ${auditEl ? (auditEl.checked ? 'Yes' : 'No') : '-'}`,
+        '',
+        'Close-out:',
+        `- Cleared from active: ${clearEl ? (clearEl.checked ? 'Yes' : 'No') : '-'}`,
+        `- Clear reason: ${clearReasonEl ? (clearReasonEl.value || '-') : '-'}`,
+      ].filter(x => x !== null);
+
+      return lines.join('\n');
+    }
+
     els.rows.addEventListener('click', async (ev) => {
-      const btn = ev.target && ev.target.closest ? ev.target.closest('.triage-save') : null;
+      const saveBtn = ev.target && ev.target.closest ? ev.target.closest('.triage-save') : null;
+      const copyBtn = ev.target && ev.target.closest ? ev.target.closest('.triage-copy') : null;
+      const btn = saveBtn || copyBtn;
       if (!btn) return;
 
       const tr = btn.closest('tr');
@@ -438,40 +566,56 @@
 
       const payload = {
         delivery_number: delivery,
-        // best-effort attribution (shared PCs): user can set later
         updated_by: localStorage.getItem('atc_user') || ''
       };
 
-      if (view === 'unchecked') {
-        const checkedEl = tr.querySelector('.triage-checked');
-        const causeEl = tr.querySelector('select[data-field="primary_cause"]');
-        const escEl = tr.querySelector('select[data-field="escalation"]');
-        const noteEl = tr.querySelector('.triage-note');
+      const checkedEl = tr.querySelector('.triage-checked');
+      const causeEl = tr.querySelector('select[data-field="primary_cause"]');
+      const escEl = tr.querySelector('select[data-field="escalation"]');
+      const noteEl = tr.querySelector('.triage-note');
+      const qaStatusEl = tr.querySelector('select[data-field="qa_status"]');
+      const qaNoteEl = tr.querySelector('.qa-note');
+      const auditEl = tr.querySelector('.audit-complete');
+      const clearEl = tr.querySelector('.clear-checked');
+      const clearReasonEl = tr.querySelector('select[data-field="cleared_reason"]');
 
+      if (view === 'unchecked') {
         payload.checked = !!(checkedEl && checkedEl.checked);
         payload.primary_cause = causeEl ? causeEl.value : '';
         payload.escalation = escEl ? escEl.value : '';
         payload.note = noteEl ? noteEl.value : '';
+        payload.cleared_from_active = !!(clearEl && clearEl.checked);
+        payload.cleared_reason = clearReasonEl ? clearReasonEl.value : '';
       } else if (view === 'qa') {
-      } else if (view === 'all') {
-        const checkedEl = tr.querySelector('.triage-checked');
-        const causeEl = tr.querySelector('select[data-field="primary_cause"]');
-        const escEl = tr.querySelector('select[data-field="escalation"]');
-        const noteEl = tr.querySelector('.triage-note');
-        const qaStatusEl = tr.querySelector('select[data-field="qa_status"]');
-        const qaNoteEl = tr.querySelector('.qa-note');
-
+        payload.qa_status = qaStatusEl ? qaStatusEl.value : '';
+        payload.qa_note = qaNoteEl ? qaNoteEl.value : '';
+        payload.audit_completed = !!(auditEl && auditEl.checked);
+      } else {
+        // all / active_flagged / past
         payload.checked = !!(checkedEl && checkedEl.checked);
         payload.primary_cause = causeEl ? causeEl.value : '';
         payload.escalation = escEl ? escEl.value : '';
         payload.note = noteEl ? noteEl.value : '';
         payload.qa_status = qaStatusEl ? qaStatusEl.value : '';
         payload.qa_note = qaNoteEl ? qaNoteEl.value : '';
+        payload.audit_completed = !!(auditEl && auditEl.checked);
+        payload.cleared_from_active = !!(clearEl && clearEl.checked);
+        payload.cleared_reason = clearReasonEl ? clearReasonEl.value : '';
       }
 
-      if (msgEl) {
-        msgEl.textContent = 'Saving…';
+      const summary = buildSummary({ delivery, view, tr });
+
+      if (copyBtn && !saveBtn) {
+        try {
+          await copyText(summary);
+          if (msgEl) msgEl.textContent = 'Copied';
+        } catch (e) {
+          if (msgEl) msgEl.textContent = String(e);
+        }
+        return;
       }
+
+      if (msgEl) msgEl.textContent = 'Saving…';
 
       try {
         const res = await fetch('/api/triage', {
@@ -481,7 +625,10 @@
         });
         const out = await res.json();
         if (!out.ok) throw new Error(out.error || 'Save failed');
-        if (msgEl) msgEl.textContent = 'Saved';
+
+        await copyText(summary);
+        if (msgEl) msgEl.textContent = 'Saved + Copied';
+
         await load();
       } catch (e) {
         if (msgEl) msgEl.textContent = String(e);
