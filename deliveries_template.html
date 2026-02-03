@@ -156,6 +156,26 @@
       status: document.getElementById('status'),
     };
 
+    function showFatal(where, err) {
+      try {
+        const msg = `[${where}] ${String(err && err.message ? err.message : err)}`;
+        if (els.status) {
+          els.status.className = 'pill bad';
+          els.status.textContent = msg;
+        }
+      } catch (_) {
+        // best effort
+      }
+    }
+
+    window.addEventListener('error', (e) => {
+      showFatal('error', e && e.error ? e.error : (e && e.message ? e.message : e));
+    });
+
+    window.addEventListener('unhandledrejection', (e) => {
+      showFatal('promise', e && e.reason ? e.reason : e);
+    });
+
     function esc(s) {
       return String(s ?? '')
         .replaceAll('&', '&amp;')
@@ -465,23 +485,28 @@
     }
 
     async function load() {
-      els.status.className = 'pill warn';
-      els.status.textContent = 'Loading…';
-      await loadTriageOptions();
-      const mode = encodeURIComponent(els.mode.value);
-      const limit = encodeURIComponent(els.limit.value);
+      try {
+        els.status.className = 'pill warn';
+        els.status.textContent = 'Loading…';
 
-      const view = (els.view && els.view.value) ? els.view.value : 'unchecked';
-      // Map UI view -> API scope
-      let scope = 'floor';
-      if (view === 'active_flagged') scope = 'active_flagged';
-      else if (view === 'past') scope = 'past';
-      else if (view === 'qa') scope = 'active_flagged';
-      else if (view === 'all') scope = 'active_flagged';
+        await loadTriageOptions();
+        const mode = encodeURIComponent(els.mode.value);
+        const limit = encodeURIComponent(els.limit.value);
 
-      const res = await fetch(`/api/deliveries?mode=${mode}&limit=${limit}&scope=${encodeURIComponent(scope)}`, { cache: 'no-store' });
-      const payload = await res.json();
-      render(payload);
+        const view = (els.view && els.view.value) ? els.view.value : 'unchecked';
+        // Map UI view -> API scope
+        let scope = 'floor';
+        if (view === 'active_flagged') scope = 'active_flagged';
+        else if (view === 'past') scope = 'past';
+        else if (view === 'qa') scope = 'active_flagged';
+        else if (view === 'all') scope = 'active_flagged';
+
+        const res = await fetch(`/api/deliveries?mode=${mode}&limit=${limit}&scope=${encodeURIComponent(scope)}`, { cache: 'no-store' });
+        const payload = await res.json();
+        render(payload);
+      } catch (e) {
+        showFatal('load', e);
+      }
     }
 
     async function copyText(text) {
