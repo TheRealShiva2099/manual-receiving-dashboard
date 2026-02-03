@@ -34,12 +34,18 @@
     .controls { display:flex; gap:10px; flex-wrap: wrap; align-items: end; }
     .field { display:flex; flex-direction: column; gap: 6px; }
     .label { color: var(--muted); font-size: 12px; }
-    input, select { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); min-width: 240px; }
+    input, select { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); }
+    .controls input, .controls select { min-width: 240px; }
 
-    table { width: 100%; border-collapse: collapse; table-layout: fixed; background: var(--card); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(16,42,67,.08); border: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(16,42,67,.08); border: 1px solid var(--border); }
     th, td { padding: 8px; border-bottom: 1px solid var(--border); font-size: 12px; text-align: left; vertical-align: top; }
     thead th { text-align: center; white-space: nowrap; }
-    td.items-col { white-space: normal; word-break: break-word; }
+    /* Keep item rows readable; avoid wrapping item_nbr/desc into mush */
+    td.items-col div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    td.items-col { white-space: normal; }
+
+    /* Let table cell inputs fit their columns */
+    table select.input, table input.input { min-width: 0; width: 100%; box-sizing: border-box; }
     th { background: #f0f4f8; position: sticky; top: 0; z-index: 1; }
 
     .pill { display:inline-flex; align-items:center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: #fff; font-size: 12px; }
@@ -264,8 +270,8 @@
       let extraHead = [];
       if (view === 'unchecked') {
         extraHead = [
-          '<th style="min-width: 46px;">Checked</th>',
-          '<th style="min-width: 70px;">No more cases</th>',
+          '<th style="min-width: 56px;">Checked</th>',
+          '<th style="min-width: 90px;">No more cases</th>',
           '<th style="min-width: 160px;">Primary cause</th>',
           '<th style="min-width: 140px;">Disposition</th>',
           '<th style="min-width: 200px;">Notes</th>',
@@ -285,8 +291,8 @@
       } else {
         // All / active_flagged / past = editable escape hatch
         extraHead = [
-          '<th style="min-width: 46px;">Checked</th>',
-          '<th style="min-width: 70px;">No more cases</th>',
+          '<th style="min-width: 56px;">Checked</th>',
+          '<th style="min-width: 90px;">No more cases</th>',
           '<th style="min-width: 160px;">Primary cause</th>',
           '<th style="min-width: 140px;">Disposition</th>',
           '<th style="min-width: 200px;">Notes</th>',
