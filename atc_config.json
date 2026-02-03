@@ -77,11 +77,7 @@
       "Not approved / hold",
       "Follow-up needed"
     ],
-    "clear_reasons": [
-      "No more MR cases at locations",
-      "Freight processed / nothing left to work",
-      "Other"
-    ]
+    "clear_reasons": []
   },
   "teams_notifications": {
     "enabled": true,

@@ -432,15 +432,18 @@ def create_app(base_dir: Path) -> Flask:
             if not isinstance(triage, dict):
                 triage = {}
 
-            is_cleared = bool(triage.get("cleared_from_active", 0))
+            is_no_more_cases = bool(triage.get("cleared_from_active", 0))
+            is_floor_resolved = str(triage.get("escalation", "") or "").strip() == "Resolved on floor"
             is_audit_completed = bool(triage.get("audit_completed", 0))
 
+            is_past = bool(is_no_more_cases or is_floor_resolved or is_audit_completed)
+
             if scope == "past":
-                if not (is_cleared or is_audit_completed):
+                if not is_past:
                     continue
             else:
-                # active lists hide cleared deliveries
-                if is_cleared:
+                # active lists hide cleared/resolved/audited deliveries
+                if is_past:
                     continue
 
             rows.append(
@@ -504,7 +507,6 @@ def create_app(base_dir: Path) -> Flask:
                 "primary_causes": triage.get("primary_causes", []),
                 "escalation_options": triage.get("escalation_options", []),
                 "qa_status_options": triage.get("qa_status_options", []),
-                "clear_reasons": triage.get("clear_reasons", []),
             }
         )
 

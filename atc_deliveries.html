@@ -248,7 +248,6 @@
       const causes = (triageOptions && triageOptions.primary_causes) || [];
       const escalations = (triageOptions && triageOptions.escalation_options) || [];
       const qaStatuses = (triageOptions && triageOptions.qa_status_options) || [];
-      const clearReasons = (triageOptions && triageOptions.clear_reasons) || [];
 
       const baseHead = [
         '<th style="min-width: 140px;">Notified at</th>',
@@ -264,11 +263,10 @@
       if (view === 'unchecked') {
         extraHead = [
           '<th style="min-width: 110px;">Checked</th>',
+          '<th style="min-width: 160px;">No more cases</th>',
           '<th style="min-width: 180px;">Primary cause</th>',
           '<th style="min-width: 160px;">Disposition</th>',
           '<th style="min-width: 240px;">Notes</th>',
-          '<th style="min-width: 120px;">Clear?</th>',
-          '<th style="min-width: 220px;">Clear reason</th>',
           '<th style="min-width: 140px;">Save</th>',
         ];
       } else if (view === 'qa') {
@@ -286,14 +284,13 @@
         // All / active_flagged / past = editable escape hatch
         extraHead = [
           '<th style="min-width: 110px;">Checked</th>',
+          '<th style="min-width: 160px;">No more cases</th>',
           '<th style="min-width: 180px;">Primary cause</th>',
           '<th style="min-width: 160px;">Disposition</th>',
           '<th style="min-width: 240px;">Notes</th>',
           '<th style="min-width: 180px;">QA status</th>',
           '<th style="min-width: 280px;">QA notes</th>',
           '<th style="min-width: 160px;">Audit complete</th>',
-          '<th style="min-width: 120px;">Clear?</th>',
-          '<th style="min-width: 220px;">Clear reason</th>',
           '<th style="min-width: 140px;">Save</th>',
         ];
       }
@@ -319,7 +316,6 @@
         const qaNoteValue = r.qa_note || '';
         const auditCompleted = !!r.audit_completed;
         const cleared = !!r.cleared_from_active;
-        const clearedReason = r.cleared_reason || '';
 
         const baseCells = [
           `<td>${esc(notified)}</td>`,
@@ -349,11 +345,8 @@
 
           const clearHtml = `<label class="muted" style="display:flex; gap:8px; align-items:center;">
             <input type="checkbox" class="clear-checked" ${cleared ? 'checked' : ''} />
-            <span>Clear</span>
+            <span>No more cases</span>
           </label>`;
-
-          const clearReasonHtml = selectHtml(clearReasons, clearedReason, 'Select…')
-            .replace('<select', '<select data-field="cleared_reason" class="input clear-select"');
 
           const saveHtml = `
             <div style="display:flex; flex-direction:column; gap:6px;">
@@ -365,11 +358,10 @@
 
           extraCells = [
             `<td>${checkedHtml}</td>`,
+            `<td>${clearHtml}</td>`,
             `<td>${primaryHtml}</td>`,
             `<td>${escalationHtml}</td>`,
             `<td>${noteHtml}</td>`,
-            `<td>${clearHtml}</td>`,
-            `<td>${clearReasonHtml}</td>`,
             `<td>${saveHtml}</td>`,
           ];
         } else if (view === 'qa') {
@@ -428,11 +420,8 @@
 
           const clearHtml = `<label class="muted" style="display:flex; gap:8px; align-items:center;">
             <input type="checkbox" class="clear-checked" ${cleared ? 'checked' : ''} />
-            <span>Clear</span>
+            <span>No more cases</span>
           </label>`;
-
-          const clearReasonHtml = selectHtml(clearReasons, clearedReason, 'Select…')
-            .replace('<select', '<select data-field="cleared_reason" class="input clear-select"');
 
           const saveHtml = `
             <div style="display:flex; flex-direction:column; gap:6px;">
@@ -444,19 +433,19 @@
 
           extraCells = [
             `<td>${checkedHtml}</td>`,
+            `<td>${clearHtml}</td>`,
             `<td>${primaryHtml}</td>`,
             `<td>${escalationHtml}</td>`,
             `<td>${noteHtml}</td>`,
             `<td>${qaStatusHtml}</td>`,
             `<td>${qaNoteHtml}</td>`,
             `<td>${auditHtml}</td>`,
-            `<td>${clearHtml}</td>`,
-            `<td>${clearReasonHtml}</td>`,
             `<td>${saveHtml}</td>`,
           ];
         }
 
-        return `<tr data-delivery="${esc(del)}">${baseCells.join('')}${extraCells.join('')}</tr>`;
+        const itemNbrs = (r.items || []).map(x => (x && x.item_nbr) ? String(x.item_nbr).trim() : '').filter(Boolean);
+        return `<tr data-delivery="${esc(del)}" data-items="${esc(itemNbrs.join(','))}">${baseCells.join('')}${extraCells.join('')}</tr>`;
       }).join('');
 
       const msg = `Showing ${rows.length} deliveries (view: ${view}, source: ${payload.mode || '-'})`;
@@ -509,46 +498,32 @@
       document.body.removeChild(ta);
     }
 
-    function buildSummary({ delivery, view, tr }) {
-      const shift = (tr.children[2] && tr.children[2].textContent) ? tr.children[2].textContent.trim() : '';
+    function buildSummary({ delivery, tr }) {
       const notifiedAt = (tr.children[0] && tr.children[0].textContent) ? tr.children[0].textContent.trim() : '';
-      const lastMr = (tr.children[1] && tr.children[1].textContent) ? tr.children[1].textContent.trim() : '';
       const totalCases = (tr.querySelector('td b') && tr.querySelector('td b').textContent) ? tr.querySelector('td b').textContent.trim() : '';
 
-      const checkedEl = tr.querySelector('.triage-checked');
+      const itemsCsv = tr.dataset.items || '';
+      const itemNbrs = itemsCsv ? itemsCsv.split(',').map(s => s.trim()).filter(Boolean) : [];
+
       const causeEl = tr.querySelector('select[data-field="primary_cause"]');
       const escEl = tr.querySelector('select[data-field="escalation"]');
-      const noteEl = tr.querySelector('.triage-note');
       const qaStatusEl = tr.querySelector('select[data-field="qa_status"]');
       const qaNoteEl = tr.querySelector('.qa-note');
-      const auditEl = tr.querySelector('.audit-complete');
-      const clearEl = tr.querySelector('.clear-checked');
-      const clearReasonEl = tr.querySelector('select[data-field="cleared_reason"]');
 
       const lines = [
-        `MR Delivery: ${delivery}`,
-        shift ? `Shift: ${shift}` : null,
-        notifiedAt && notifiedAt !== '-' ? `Notified: ${notifiedAt}` : null,
-        lastMr && lastMr !== '-' ? `Last MR case: ${lastMr}` : null,
-        totalCases ? `Total cases: ${totalCases}` : null,
+        `Delivery: ${delivery}`,
+        itemNbrs.length ? `Items: ${itemNbrs.join(', ')}` : 'Items: -',
+        notifiedAt && notifiedAt !== '-' ? `Notified: ${notifiedAt}` : 'Notified: -',
+        totalCases ? `Total cases: ${totalCases}` : 'Total cases: -',
         '',
-        'Floor:',
-        `- Checked: ${checkedEl ? (checkedEl.checked ? 'Yes' : 'No') : 'N/A'}`,
-        `- Cause: ${causeEl ? (causeEl.value || '-') : '-'}`,
-        `- Disposition: ${escEl ? (escEl.value || '-') : '-'}`,
-        `- Notes: ${noteEl ? (noteEl.value || '-') : '-'}`,
+        `Floor cause: ${causeEl ? (causeEl.value || '-') : '-'}`,
+        `Floor disposition: ${escEl ? (escEl.value || '-') : '-'}`,
         '',
-        'QA:',
-        `- Status: ${qaStatusEl ? (qaStatusEl.value || '-') : '-'}`,
-        `- Notes: ${qaNoteEl ? (qaNoteEl.value || '-') : '-'}`,
-        `- Audit complete: ${auditEl ? (auditEl.checked ? 'Yes' : 'No') : '-'}`,
-        '',
-        'Close-out:',
-        `- Cleared from active: ${clearEl ? (clearEl.checked ? 'Yes' : 'No') : '-'}`,
-        `- Clear reason: ${clearReasonEl ? (clearReasonEl.value || '-') : '-'}`,
-      ].filter(x => x !== null);
+        `QA status: ${qaStatusEl ? (qaStatusEl.value || '-') : '-'}`,
+        `QA notes: ${qaNoteEl ? (qaNoteEl.value || '-') : '-'}`,
+      ];
 
-      return lines.join('\n');
+      return lines.join('\\n');
     }
 
     els.rows.addEventListener('click', async (ev) => {
@@ -577,7 +552,6 @@
       const qaNoteEl = tr.querySelector('.qa-note');
       const auditEl = tr.querySelector('.audit-complete');
       const clearEl = tr.querySelector('.clear-checked');
-      const clearReasonEl = tr.querySelector('select[data-field="cleared_reason"]');
 
       if (view === 'unchecked') {
         payload.checked = !!(checkedEl && checkedEl.checked);
@@ -585,7 +559,6 @@
         payload.escalation = escEl ? escEl.value : '';
         payload.note = noteEl ? noteEl.value : '';
         payload.cleared_from_active = !!(clearEl && clearEl.checked);
-        payload.cleared_reason = clearReasonEl ? clearReasonEl.value : '';
       } else if (view === 'qa') {
         payload.qa_status = qaStatusEl ? qaStatusEl.value : '';
         payload.qa_note = qaNoteEl ? qaNoteEl.value : '';
@@ -600,10 +573,9 @@
         payload.qa_note = qaNoteEl ? qaNoteEl.value : '';
         payload.audit_completed = !!(auditEl && auditEl.checked);
         payload.cleared_from_active = !!(clearEl && clearEl.checked);
-        payload.cleared_reason = clearReasonEl ? clearReasonEl.value : '';
       }
 
-      const summary = buildSummary({ delivery, view, tr });
+      const summary = buildSummary({ delivery, tr });
 
       if (copyBtn && !saveBtn) {
         try {
