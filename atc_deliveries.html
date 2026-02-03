@@ -333,7 +333,6 @@
         if (view === 'unchecked') {
           const checkedHtml = `<label class="muted" style="display:flex; gap:8px; align-items:center;">
             <input type="checkbox" class="triage-checked" ${checked ? 'checked' : ''} />
-            <span>Checked</span>
           </label>`;
 
           const primaryHtml = selectHtml(causes, primary, 'Select…')
@@ -346,7 +345,6 @@
 
           const clearHtml = `<label class="muted" style="display:flex; gap:8px; align-items:center;">
             <input type="checkbox" class="clear-checked" ${cleared ? 'checked' : ''} />
-            <span>No more cases</span>
           </label>`;
 
           const saveHtml = `
@@ -398,7 +396,6 @@
           // All = editable escape hatch (floor + QA)
           const checkedHtml = `<label class="muted" style="display:flex; gap:8px; align-items:center;">
             <input type="checkbox" class="triage-checked" ${checked ? 'checked' : ''} />
-            <span>Checked</span>
           </label>`;
 
           const primaryHtml = selectHtml(causes, primary, 'Select…')
@@ -421,7 +418,6 @@
 
           const clearHtml = `<label class="muted" style="display:flex; gap:8px; align-items:center;">
             <input type="checkbox" class="clear-checked" ${cleared ? 'checked' : ''} />
-            <span>No more cases</span>
           </label>`;
 
           const saveHtml = `
