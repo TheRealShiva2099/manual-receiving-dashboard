@@ -36,9 +36,10 @@
     .label { color: var(--muted); font-size: 12px; }
     input, select { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); min-width: 240px; }
 
-    table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(16,42,67,.08); border: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; background: var(--card); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(16,42,67,.08); border: 1px solid var(--border); }
     th, td { padding: 8px; border-bottom: 1px solid var(--border); font-size: 12px; text-align: left; vertical-align: top; }
-    thead th { text-align: center; }
+    thead th { text-align: center; white-space: nowrap; }
+    td.items-col { white-space: normal; word-break: break-word; }
     th { background: #f0f4f8; position: sticky; top: 0; z-index: 1; }
 
     .pill { display:inline-flex; align-items:center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: #fff; font-size: 12px; }
@@ -251,13 +252,13 @@
       const qaStatuses = (triageOptions && triageOptions.qa_status_options) || [];
 
       const baseHead = [
-        '<th style="min-width: 120px;">Notified at</th>',
-        '<th style="min-width: 140px;">Last MR case</th>',
+        '<th style="min-width: 110px;">Notified at</th>',
+        '<th style="min-width: 120px;">Last MR case</th>',
         '<th style="min-width: 70px;">Shift</th>',
         '<th style="min-width: 100px;">Delivery</th>',
         '<th style="min-width: 70px;">Total cases</th>',
         '<th style="min-width: 120px;">Locations</th>',
-        '<th style="min-width: 420px;">Items (item_nbr • desc • cases • locations)</th>',
+        '<th class="items-col" style="min-width: 320px;">Items (item_nbr • desc • cases • locations)</th>',
       ];
 
       let extraHead = [];
@@ -325,7 +326,7 @@
           `<td class="mono">${esc(del)}</td>`,
           `<td><b>${esc(total)}</b></td>`,
           `<td>${esc(locText)}</td>`,
-          `<td>${formatItems(r.items || [])}</td>`,
+          `<td class="items-col">${formatItems(r.items || [])}</td>`,
         ];
 
         let extraCells = [];
