@@ -156,10 +156,10 @@
       status: document.getElementById('status'),
     };
 
-    // ultra-early sanity marker so we can tell the script is executing
-    if (els.status && !els.status.textContent) {
+    // If you can’t see this, the script isn’t running (cached page or syntax error)
+    if (els.status) {
       els.status.className = 'pill warn';
-      els.status.textContent = 'JS loaded…';
+      els.status.textContent = `JS loaded (deliveries) ${new Date().toLocaleTimeString()}`;
     }
 
     function showFatal(where, err) {
