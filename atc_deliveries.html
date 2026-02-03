@@ -250,48 +250,48 @@
       const qaStatuses = (triageOptions && triageOptions.qa_status_options) || [];
 
       const baseHead = [
-        '<th style="min-width: 140px;">Notified at</th>',
-        '<th style="min-width: 160px;">Last MR case</th>',
-        '<th style="min-width: 120px;">Shift</th>',
-        '<th style="min-width: 130px;">Delivery</th>',
-        '<th style="min-width: 140px;">Total cases</th>',
-        '<th style="min-width: 180px;">Locations</th>',
-        '<th style="min-width: 520px;">Items (item_nbr • desc • cases • locations)</th>',
+        '<th style="min-width: 120px;">Notified at</th>',
+        '<th style="min-width: 140px;">Last MR case</th>',
+        '<th style="min-width: 90px;">Shift</th>',
+        '<th style="min-width: 120px;">Delivery</th>',
+        '<th style="min-width: 110px;">Total cases</th>',
+        '<th style="min-width: 150px;">Locations</th>',
+        '<th style="min-width: 420px;">Items (item_nbr • desc • cases • locations)</th>',
       ];
 
       let extraHead = [];
       if (view === 'unchecked') {
         extraHead = [
-          '<th style="min-width: 110px;">Checked</th>',
-          '<th style="min-width: 160px;">No more cases</th>',
-          '<th style="min-width: 180px;">Primary cause</th>',
-          '<th style="min-width: 160px;">Disposition</th>',
-          '<th style="min-width: 240px;">Notes</th>',
-          '<th style="min-width: 140px;">Save</th>',
+          '<th style="min-width: 90px;">Checked</th>',
+          '<th style="min-width: 140px;">No more cases</th>',
+          '<th style="min-width: 160px;">Primary cause</th>',
+          '<th style="min-width: 140px;">Disposition</th>',
+          '<th style="min-width: 200px;">Notes</th>',
+          '<th style="min-width: 120px;">Save</th>',
         ];
       } else if (view === 'qa') {
         extraHead = [
           '<th style="min-width: 90px;">Floor checked</th>',
-          '<th style="min-width: 180px;">Floor cause</th>',
-          '<th style="min-width: 180px;">Floor disposition</th>',
-          '<th style="min-width: 280px;">Floor notes</th>',
-          '<th style="min-width: 180px;">QA status</th>',
-          '<th style="min-width: 280px;">QA notes</th>',
-          '<th style="min-width: 160px;">Audit complete</th>',
-          '<th style="min-width: 140px;">Save</th>',
+          '<th style="min-width: 160px;">Floor cause</th>',
+          '<th style="min-width: 160px;">Floor disposition</th>',
+          '<th style="min-width: 220px;">Floor notes</th>',
+          '<th style="min-width: 160px;">QA status</th>',
+          '<th style="min-width: 220px;">QA notes</th>',
+          '<th style="min-width: 140px;">Audit complete</th>',
+          '<th style="min-width: 120px;">Save</th>',
         ];
       } else {
         // All / active_flagged / past = editable escape hatch
         extraHead = [
-          '<th style="min-width: 110px;">Checked</th>',
-          '<th style="min-width: 160px;">No more cases</th>',
-          '<th style="min-width: 180px;">Primary cause</th>',
-          '<th style="min-width: 160px;">Disposition</th>',
-          '<th style="min-width: 240px;">Notes</th>',
-          '<th style="min-width: 180px;">QA status</th>',
-          '<th style="min-width: 280px;">QA notes</th>',
-          '<th style="min-width: 160px;">Audit complete</th>',
-          '<th style="min-width: 140px;">Save</th>',
+          '<th style="min-width: 90px;">Checked</th>',
+          '<th style="min-width: 140px;">No more cases</th>',
+          '<th style="min-width: 160px;">Primary cause</th>',
+          '<th style="min-width: 140px;">Disposition</th>',
+          '<th style="min-width: 200px;">Notes</th>',
+          '<th style="min-width: 160px;">QA status</th>',
+          '<th style="min-width: 220px;">QA notes</th>',
+          '<th style="min-width: 140px;">Audit complete</th>',
+          '<th style="min-width: 120px;">Save</th>',
         ];
       }
 
@@ -304,7 +304,7 @@
         const lastMr = r.latest_detected_at_local || '-';
         const sh = r.shift_label || '-';
         const del = r.delivery_number || '-';
-        const total = Number(r.total_cases || 0).toFixed(1);
+        const total = String(Math.round(Number(r.total_cases || 0)));
         const locs = (r.locations || []).slice(0, 10);
         const locText = locs.length ? locs.join(', ') : '-';
 
@@ -523,7 +523,7 @@
         `QA notes: ${qaNoteEl ? (qaNoteEl.value || '-') : '-'}`,
       ];
 
-      return lines.join('\\n');
+      return lines.join('\n');
     }
 
     els.rows.addEventListener('click', async (ev) => {
