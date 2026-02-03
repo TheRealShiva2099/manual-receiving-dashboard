@@ -156,6 +156,12 @@
       status: document.getElementById('status'),
     };
 
+    // ultra-early sanity marker so we can tell the script is executing
+    if (els.status && !els.status.textContent) {
+      els.status.className = 'pill warn';
+      els.status.textContent = 'JS loaded…';
+    }
+
     function showFatal(where, err) {
       try {
         const msg = `[${where}] ${String(err && err.message ? err.message : err)}`;
