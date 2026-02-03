@@ -44,7 +44,7 @@
     /* Center the items cell, but keep the inner text left-aligned for readability */
     td.items-col { text-align: center; }
     /* Keep item rows readable; avoid wrapping item_nbr/desc into mush */
-    td.items-col div { display: inline-block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+    .item-line { display: block; margin: 0 auto; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
     td.items-col { white-space: normal; }
 
     /* Let table cell inputs fit their columns */
@@ -59,10 +59,10 @@
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
     .muted { color: var(--muted); }
 
-    details { border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+    details { border: 1px solid var(--border); border-radius: 10px; background: #fff; max-width: 100%; }
     summary { cursor: pointer; padding: 10px 12px; font-weight: 800; list-style: none; }
     summary::-webkit-details-marker { display:none; }
-    .detailsBody { padding: 10px 12px; border-top: 1px solid var(--border); }
+    .detailsBody { padding: 10px 12px; border-top: 1px solid var(--border); max-width: 100%; overflow-x: hidden; }
 
     .foot { margin-top: 10px; color: var(--muted); font-size: 12px; }
   </style>
@@ -189,7 +189,7 @@
         const locs = (it.locations || []).slice(0, 6);
         const locText = locs.length ? locs.join(', ') : '-';
         const desc = it.item_desc ? it.item_desc : '';
-        return `<div><span class="mono">${esc(it.item_nbr)}</span> • ${esc(desc)} • <b>${Number(it.cases || 0).toFixed(1)}</b> cases • <span class="muted">${esc(locText)}</span></div>`;
+        return `<div class="item-line"><span class="mono">${esc(it.item_nbr)}</span> • ${esc(desc)} • <b>${Number(it.cases || 0).toFixed(1)}</b> cases • <span class="muted">${esc(locText)}</span></div>`;
       }).join('');
 
       if (more <= 0) return lines;
@@ -197,7 +197,7 @@
           const locs = (it.locations || []).slice(0, 6);
           const locText = locs.length ? locs.join(', ') : '-';
           const desc = it.item_desc ? it.item_desc : '';
-          return `<div><span class="mono">${esc(it.item_nbr)}</span> • ${esc(desc)} • <b>${Number(it.cases || 0).toFixed(1)}</b> cases • <span class="muted">${esc(locText)}</span></div>`;
+          return `<div class="item-line"><span class="mono">${esc(it.item_nbr)}</span> • ${esc(desc)} • <b>${Number(it.cases || 0).toFixed(1)}</b> cases • <span class="muted">${esc(locText)}</span></div>`;
         }).join('')}</div></details>`;
     }
 
