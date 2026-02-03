@@ -156,26 +156,6 @@
       status: document.getElementById('status'),
     };
 
-    function showFatal(where, err) {
-      try {
-        const msg = `[${where}] ${String(err && err.message ? err.message : err)}`;
-        if (els.status) {
-          els.status.className = 'pill bad';
-          els.status.textContent = msg;
-        }
-      } catch (_) {
-        // best effort
-      }
-    }
-
-    window.addEventListener('error', (e) => {
-      showFatal('error', e && e.error ? e.error : (e && e.message ? e.message : e));
-    });
-
-    window.addEventListener('unhandledrejection', (e) => {
-      showFatal('promise', e && e.reason ? e.reason : e);
-    });
-
     function esc(s) {
       return String(s ?? '')
         .replaceAll('&', '&amp;')
@@ -319,12 +299,7 @@
         els.thead.innerHTML = `<tr>${baseHead.join('')}${extraHead.join('')}</tr>`;
       }
 
-      let rendered = 0;
-      let renderErrors = 0;
-      const outRows = [];
-
-      for (const r of rows) {
-        try {
+      els.rows.innerHTML = rows.map(r => {
         const notified = r.notified_at_local || '-';
         const lastMr = r.latest_detected_at_local || '-';
         const sh = r.shift_label || '-';
@@ -470,43 +445,32 @@
         }
 
         const itemNbrs = (r.items || []).map(x => (x && x.item_nbr) ? String(x.item_nbr).trim() : '').filter(Boolean);
-          outRows.push(`<tr data-delivery="${esc(del)}" data-items="${esc(itemNbrs.join(','))}">${baseCells.join('')}${extraCells.join('')}</tr>`);
-          rendered += 1;
-        } catch (e) {
-          renderErrors += 1;
-        }
-      }
+        return `<tr data-delivery="${esc(del)}" data-items="${esc(itemNbrs.join(','))}">${baseCells.join('')}${extraCells.join('')}</tr>`;
+      }).join('');
 
-      els.rows.innerHTML = outRows.join('');
-
-      const msg = `raw=${(payload.rows || []).length} filtered=${rows.length} rendered=${rendered} errors=${renderErrors} (view: ${view}, source: ${payload.mode || '-'})`;
-      els.status.className = renderErrors ? 'pill warn' : 'pill ok';
+      const msg = `Showing ${rows.length} deliveries (view: ${view}, source: ${payload.mode || '-'})`;
+      els.status.className = 'pill ok';
       els.status.textContent = msg;
     }
 
     async function load() {
-      try {
-        els.status.className = 'pill warn';
-        els.status.textContent = 'Loading…';
+      els.status.className = 'pill warn';
+      els.status.textContent = 'Loading…';
+      await loadTriageOptions();
+      const mode = encodeURIComponent(els.mode.value);
+      const limit = encodeURIComponent(els.limit.value);
 
-        await loadTriageOptions();
-        const mode = encodeURIComponent(els.mode.value);
-        const limit = encodeURIComponent(els.limit.value);
+      const view = (els.view && els.view.value) ? els.view.value : 'unchecked';
+      // Map UI view -> API scope
+      let scope = 'floor';
+      if (view === 'active_flagged') scope = 'active_flagged';
+      else if (view === 'past') scope = 'past';
+      else if (view === 'qa') scope = 'active_flagged';
+      else if (view === 'all') scope = 'active_flagged';
 
-        const view = (els.view && els.view.value) ? els.view.value : 'unchecked';
-        // Map UI view -> API scope
-        let scope = 'floor';
-        if (view === 'active_flagged') scope = 'active_flagged';
-        else if (view === 'past') scope = 'past';
-        else if (view === 'qa') scope = 'active_flagged';
-        else if (view === 'all') scope = 'active_flagged';
-
-        const res = await fetch(`/api/deliveries?mode=${mode}&limit=${limit}&scope=${encodeURIComponent(scope)}`, { cache: 'no-store' });
-        const payload = await res.json();
-        render(payload);
-      } catch (e) {
-        showFatal('load', e);
-      }
+      const res = await fetch(`/api/deliveries?mode=${mode}&limit=${limit}&scope=${encodeURIComponent(scope)}`, { cache: 'no-store' });
+      const payload = await res.json();
+      render(payload);
     }
 
     async function copyText(text) {
@@ -559,8 +523,7 @@
         `QA notes: ${qaNoteEl ? (qaNoteEl.value || '-') : '-'}`,
       ];
 
-      return lines.join('\n');
-    }
+      return lines.join('\\n');
     }
 
     els.rows.addEventListener('click', async (ev) => {
