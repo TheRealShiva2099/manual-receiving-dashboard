@@ -299,7 +299,12 @@
         els.thead.innerHTML = `<tr>${baseHead.join('')}${extraHead.join('')}</tr>`;
       }
 
-      els.rows.innerHTML = rows.map(r => {
+      let rendered = 0;
+      let renderErrors = 0;
+      const outRows = [];
+
+      for (const r of rows) {
+        try {
         const notified = r.notified_at_local || '-';
         const lastMr = r.latest_detected_at_local || '-';
         const sh = r.shift_label || '-';
@@ -445,11 +450,17 @@
         }
 
         const itemNbrs = (r.items || []).map(x => (x && x.item_nbr) ? String(x.item_nbr).trim() : '').filter(Boolean);
-        return `<tr data-delivery="${esc(del)}" data-items="${esc(itemNbrs.join(','))}">${baseCells.join('')}${extraCells.join('')}</tr>`;
-      }).join('');
+          outRows.push(`<tr data-delivery="${esc(del)}" data-items="${esc(itemNbrs.join(','))}">${baseCells.join('')}${extraCells.join('')}</tr>`);
+          rendered += 1;
+        } catch (e) {
+          renderErrors += 1;
+        }
+      }
 
-      const msg = `Showing ${rows.length} deliveries (view: ${view}, source: ${payload.mode || '-'})`;
-      els.status.className = 'pill ok';
+      els.rows.innerHTML = outRows.join('');
+
+      const msg = `raw=${(payload.rows || []).length} filtered=${rows.length} rendered=${rendered} errors=${renderErrors} (view: ${view}, source: ${payload.mode || '-'})`;
+      els.status.className = renderErrors ? 'pill warn' : 'pill ok';
       els.status.textContent = msg;
     }
 
@@ -523,7 +534,8 @@
         `QA notes: ${qaNoteEl ? (qaNoteEl.value || '-') : '-'}`,
       ];
 
-      return lines.join('\\n');
+      return lines.join('\n');
+    }
     }
 
     els.rows.addEventListener('click', async (ev) => {
