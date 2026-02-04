@@ -1,0 +1,94 @@
+{
+  "bigquery": {
+    "project": "YOUR_PROJECT",
+    "dataset": "YOUR_DATASET",
+    "table": "RECEIVING_ITEM",
+    "billing_project": "YOUR_BILLING_PROJECT",
+    "job_project": "YOUR_JOB_PROJECT",
+    "bq_path": "C:\\Path\\To\\Google\\Cloud SDK\\google-cloud-sdk\\bin\\bq.cmd",
+    "include_vendor_name": true
+  },
+  "monitoring": {
+    "polling_interval_minutes": 15,
+    "lookback_minutes": 15,
+    "query_window_minutes": 60,
+    "bq_timeout_seconds": 900,
+    "facility_id": "US-00000",
+    "timezone": "America/New_York",
+    "overflow_locations": ["EOF", "WOF"],
+    "event_log_retention_days": 7
+  },
+  "safety": {
+    "kill_switch_file": "STOP_ATC.txt",
+    "max_queries_per_hour": 5,
+    "max_consecutive_failures": 3,
+    "backoff_on_error_seconds": 600
+  },
+  "dashboard": {
+    "refresh_seconds": 10,
+    "tableau_url": ""
+  },
+  "analytics": {
+    "top_items": {
+      "days": 30,
+      "limit": 25,
+      "min_refresh_seconds": 300,
+      "cache_file": "top_items_cache.json"
+    }
+  },
+  "notifications": {
+    "enabled": false,
+    "duration_seconds": 600,
+    "sound_enabled": true,
+    "app_name": "Manual Receiving"
+  },
+  "email_notifications": {
+    "enabled": false,
+    "preview_outbox": true,
+    "mode": "microsoft_graph",
+    "graph": {
+      "tenant": "YOUR_TENANT_ID",
+      "client_id": "YOUR_CLIENT_ID",
+      "sender": "your-email@example.com",
+      "token_cache_file": "msal_token_cache.bin"
+    },
+    "recipients": ["your-email@example.com"],
+    "max_emails_per_hour": 20
+  },
+  "deliveries_page": {
+    "min_cases_per_delivery": 10
+  },
+  "triage": {
+    "primary_causes": [
+      "Bad barcode",
+      "Channel flips",
+      "Bad packaging",
+      "PO not in delivery / PO line not found",
+      "Not on process"
+    ],
+    "escalation_options": [
+      "Resolved on floor",
+      "Escalated to QA"
+    ],
+    "qa_status_options": [
+      "Investigating",
+      "Root cause identified",
+      "Approved for MR",
+      "Not approved / hold",
+      "Follow-up needed"
+    ],
+    "clear_reasons": []
+  },
+  "teams_notifications": {
+    "enabled": true,
+    "preview_outbox": true,
+    "min_cases_per_delivery": 10,
+    "webhooks_by_shift": {
+      "Shift A1": "https://your-tenant.webhook.office.com/...",
+      "Shift A2": "https://your-tenant.webhook.office.com/...",
+      "Shift B1": "https://your-tenant.webhook.office.com/...",
+      "Off Shift": ""
+    },
+    "max_messages_per_hour": 30
+  }
+}
